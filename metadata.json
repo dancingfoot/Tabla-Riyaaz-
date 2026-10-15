@@ -1,0 +1,6 @@
+{
+  "name": "Shruti-1: FM-1 Shruti Box Synth & Simulator",
+  "description": "An authentic Indian Shruti Box drone synthesizer and interactive hardware simulator designed for M-VAVE FM-1 custom firmware development.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
