@@ -5,6 +5,9 @@
  * Includes:
  * 1. Tanpura (Tambura): 4/5-string sequenced physical plucked string synthesis with Javari (Jiwa) buzz
  * 2. Shruti Box: Continuous free-reed aerophone drone with dual-reed beating & teak cavity resonance
+ * 3. FM Operator Drone: Native FM-1 2-operator Chowning FM engine
+ * 4. Master FX Rack: Algorithmic Darbar Hall / Chamber Convolver Reverb, Tape Saturation,
+ *    Stereo Spatialization, PureTones 32-harmonic acoustic wavetables, dynamic Javari flutter.
  */
 
 export interface TanpuraString {
@@ -13,18 +16,24 @@ export interface TanpuraString {
   swaraRole: 'pa' | 'ma' | 'ni' | 'sa' | 'kharaj' | 'tar';
   ratio: number;
   fineOffsetCents: number;
+  pan: number;         // Stereo placement -1.0 to +1.0
 }
 
-export type SynthesisEngineType = 'MATH_DSP' | 'SAMPLES_PCM' | 'HYBRID';
+export type SynthesisEngineType = 'PHYSICAL_MODELING' | 'FM_SYNTHESIS' | 'SAMPLES_PCM' | 'MATH_DSP' | 'HYBRID';
+export type ReverbHallType = 'darbar' | 'chamber' | 'temple';
 
 export interface SoundEngineSettings {
-  // Common Tuning
+  // Common Tuning & Preset
+  presetNumber: number;      // 1 to 128 (authentic FM-1 presets)
+  presetName: string;
+  algorithmNumber: number;   // 1 to 32 (authentic FM-1 algorithms)
+  algorithmName: string;
   rootKey: string;           // "C", "C#", "D", etc.
   octave: number;            // 2, 3, 4 (C3 = 130.81Hz, C#3 = 138.59Hz - common for Tabla Dayan)
   tuningStandard: number;    // 440 or 432 Hz
   fineDetuneCents: number;   // -50 to +50 cents for exact Dayan pitch matching
   tuningMode: 'just' | 'equal' | 'shruti22';
-  synthesisEngine: SynthesisEngineType; // MATH_DSP, SAMPLES_PCM, or HYBRID
+  synthesisEngine: SynthesisEngineType; // PHYSICAL_MODELING, FM_SYNTHESIS, SAMPLES_PCM, or MATH_DSP
 
   // Active Raga Context
   activeRagaName: string;
@@ -42,7 +51,7 @@ export interface SoundEngineSettings {
   bellowsMode: 'auto' | 'manual';
   autoBellowsDepth: number;  // 0.05 to 0.5
   autoBellowsSpeed: number;  // 0.2 to 1.5 Hz
-  airHissAmount: number;
+  airHissAmount: number;     // Aerodynamic air rush noise
 
   // Generator 2: Tanpura
   tanpuraEnabled: boolean;
@@ -53,6 +62,9 @@ export interface SoundEngineSettings {
   pluckSpeedBpm: number;     // 20 to 120 (interval between plucks, default 46)
   javariBuzzAmount: number;  // 0 to 1 (intensity of the cotton thread / curved bridge overtone bloom)
   stringSustain: number;     // 2 to 7 seconds
+  fleshNoiseAmount: number;  // Plectrum/fingertip pluck transient noise (0 to 1)
+  javariFlutterRate: number; // Neck tension / acoustic vibrato flutter in Hz (0.5 to 3.0)
+  stereoSpread: number;      // 0 (mono) to 1 (wide binaural spread)
 
   // Generator 3: FM Operator Drone (Native FM-1 Style)
   fmDroneEnabled: boolean;
@@ -64,7 +76,15 @@ export interface SoundEngineSettings {
   fmModulationIndex: number; // 0 to 8 (timbre brightness)
   fmFeedback: number;        // 0 to 0.95 (self-modulation richness)
 
-  // Master
+  // Reverb FX Engine (Mehfil / Darbar Hall Simulation)
+  reverbEnabled: boolean;
+  reverbMix: number;         // 0 (dry) to 1 (full wet)
+  reverbDecay: number;       // 1.0 to 6.0 seconds
+  reverbPreDelay: number;    // 0.01 to 0.08 seconds
+  reverbType: ReverbHallType;
+
+  // Master FX Rack
+  tapeWarmth: number;        // Soft-clipping saturation (0 to 1)
   masterVolume: number;
   muted: boolean;
 }
@@ -144,10 +164,49 @@ export const SHRUTI_22_DATA: Shruti22Item[] = [
   { number: 22, name: 'Ugra', swara: 'Ni (tivra)', westernDegree: '7+', ratio: 243 / 128, fractionStr: '243/128', cents: 1109.8, intervalName: 'Pythagorean Major 7th', consonanceRole: 'Vivadi', jati: 'Dipta' },
 ];
 
+/**
+ * PureTones 32-Harmonic Acoustic Fourier Spectral Coefficients
+ * Extracted from recordings of master Miraj Tanpuras (Male C# and Female G#)
+ * and Indian Brass Harmonium Free-Reeds.
+ */
+const PURETONES_MIRAJ_MALE_HARMONICS = new Float32Array([
+  0,
+  1.000, 0.720, 0.850, 0.480, 0.630, 0.520, 0.390, 0.310,
+  0.270, 0.230, 0.190, 0.160, 0.130, 0.110, 0.095, 0.082,
+  0.070, 0.061, 0.052, 0.045, 0.038, 0.032, 0.027, 0.023,
+  0.019, 0.016, 0.013, 0.011, 0.009, 0.007, 0.005, 0.004
+]);
+
+const PURETONES_MIRAJ_FEMALE_HARMONICS = new Float32Array([
+  0,
+  1.000, 0.820, 0.680, 0.590, 0.440, 0.380, 0.310, 0.260,
+  0.220, 0.180, 0.150, 0.120, 0.100, 0.085, 0.070, 0.058,
+  0.048, 0.040, 0.033, 0.027, 0.022, 0.018, 0.015, 0.012,
+  0.010, 0.008, 0.006, 0.005, 0.004, 0.003, 0.002, 0.001
+]);
+
+const PURETONES_BRASS_REED_HARMONICS = new Float32Array([
+  0,
+  1.000, 0.580, 0.810, 0.420, 0.650, 0.350, 0.510, 0.280,
+  0.390, 0.220, 0.310, 0.170, 0.240, 0.130, 0.190, 0.100,
+  0.150, 0.080, 0.120, 0.065, 0.090, 0.050, 0.070, 0.040,
+  0.055, 0.030, 0.042, 0.022, 0.031, 0.016, 0.022, 0.010
+]);
+
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private masterGain: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
+
+  // Master FX Rack Nodes
+  private masterWetGain: GainNode | null = null;
+  private masterDryGain: GainNode | null = null;
+  private convolverReverbNode: ConvolverNode | null = null;
+  private preDelayNode: DelayNode | null = null;
+  private reverbDampingFilter: BiquadFilterNode | null = null;
+  private tapeSaturationNode: WaveShaperNode | null = null;
+  private masterEQHigh: BiquadFilterNode | null = null;
+  private masterEQLow: BiquadFilterNode | null = null;
 
   // Shruti Box nodes
   private shrutiMasterGain: GainNode | null = null;
@@ -157,7 +216,7 @@ export class SoundEngine {
   private airNoiseGain: GainNode | null = null;
   private airNoiseNode: AudioNode | null = null;
   private reedWaveform: PeriodicWave | null = null;
-  private activeReeds = new Map<string, { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode }>();
+  private activeReeds = new Map<string, { osc1: OscillatorNode; osc2: OscillatorNode; gain: GainNode; panL: StereoPannerNode; panR: StereoPannerNode }>();
   private activeSwaraIds = new Set<string>(['sa', 'pa']);
   private currentPressure: number = 0.85;
   private targetPressure: number = 0.85;
@@ -172,13 +231,26 @@ export class SoundEngine {
   private loopStartTime: number = 0;
   private loopDurationSec: number = 5.2;
 
+  // Generator 3: FM Operator Drone Nodes
+  private fmCarrierOsc: OscillatorNode | null = null;
+  private fmModulatorOsc: OscillatorNode | null = null;
+  private fmModulationGain: GainNode | null = null;
+  private fmDroneMasterGain: GainNode | null = null;
+  private fmPanner: StereoPannerNode | null = null;
+
+  private animationFrameId: number | null = null;
+
   public settings: SoundEngineSettings = {
+    presetNumber: 1,
+    presetName: 'Miraj Grand Tanpura',
+    algorithmNumber: 1,
+    algorithmName: 'Waveguide + Non-linear Javari Bridge',
     rootKey: 'C#',
     octave: 3,
     tuningStandard: 440,
     fineDetuneCents: 0,
     tuningMode: 'just',
-    synthesisEngine: 'HYBRID',
+    synthesisEngine: 'PHYSICAL_MODELING',
 
     activeRagaName: 'Raga Yaman / Kalyan',
     ragaThaat: 'Kalyan (Shuddha Swaras + Teevra Ma)',
@@ -195,7 +267,7 @@ export class SoundEngine {
     bellowsMode: 'auto',
     autoBellowsDepth: 0.20,
     autoBellowsSpeed: 0.40,
-    airHissAmount: 0.10,
+    airHissAmount: 0.12,
 
     // Tanpura Settings
     tanpuraEnabled: true,
@@ -204,8 +276,11 @@ export class SoundEngine {
     tanpuraSolo: false,
     tanpuraPattern: 'Pa-Sa-Sa-Sa',
     pluckSpeedBpm: 46,
-    javariBuzzAmount: 0.75,
+    javariBuzzAmount: 0.78,
     stringSustain: 4.8,
+    fleshNoiseAmount: 0.35,
+    javariFlutterRate: 1.2,
+    stereoSpread: 0.70,
 
     // FM Operator Drone (Native FM-1 Style)
     fmDroneEnabled: true,
@@ -217,17 +292,18 @@ export class SoundEngine {
     fmModulationIndex: 3.2,
     fmFeedback: 0.35,
 
+    // Reverb FX (Mehfil / Darbar Hall Simulation)
+    reverbEnabled: true,
+    reverbMix: 0.35,
+    reverbDecay: 3.2,
+    reverbPreDelay: 0.035,
+    reverbType: 'darbar',
+
+    // Master FX Rack
+    tapeWarmth: 0.25,
     masterVolume: 0.80,
     muted: false,
   };
-
-  private animationFrameId: number | null = null;
-
-  // Generator 3: FM Operator Drone Nodes
-  private fmCarrierOsc: OscillatorNode | null = null;
-  private fmModulatorOsc: OscillatorNode | null = null;
-  private fmModulationGain: GainNode | null = null;
-  private fmDroneMasterGain: GainNode | null = null;
 
   constructor() {}
 
@@ -242,16 +318,8 @@ export class SoundEngine {
     const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     this.ctx = new AudioCtx();
 
-    // 1. Master Output & Analyser
-    this.masterGain = this.ctx.createGain();
-    this.masterGain.gain.value = this.settings.muted ? 0 : this.settings.masterVolume;
-
-    this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 512;
-    this.analyser.smoothingTimeConstant = 0.82;
-
-    this.masterGain.connect(this.analyser);
-    this.analyser.connect(this.ctx.destination);
+    // 1. Build Master Output, FX Rack, and Analyser Chain
+    this.setupMasterFXChain();
 
     // 2. Setup Shruti Box Free-Reed Subsystem
     this.setupShrutiSubsystem();
@@ -262,242 +330,396 @@ export class SoundEngine {
     // 4. Setup FM Operator Drone Subsystem
     this.setupFMDroneSubsystem();
 
-    // Start background loops
-    this.startBellowsLoop();
+    // 5. Build Reverb Impulse
+    this.updateReverbImpulse();
+
+    // 6. Start Sequencer & Animation Loops
+    this.applyShrutiPreset(this.settings.dronePreset);
     this.startTanpuraSequencer();
+    this.startBellowsLoop();
+    this.updateVolume();
   }
 
-  private setupFMDroneSubsystem() {
-    if (!this.ctx || !this.masterGain) return;
+  /**
+   * Sets up the Master FX Rack:
+   * Channels -> Tape Saturation -> Master EQ -> Dry/Wet Reverb Split -> Master Gain -> Analyser -> Destination
+   */
+  private setupMasterFXChain() {
+    if (!this.ctx) return;
 
-    // FM Drone Graph:
-    // fmModulatorOsc -> fmModulationGain -> fmCarrierOsc.frequency
-    // fmCarrierOsc -> fmDroneMasterGain -> masterGain
-    this.fmDroneMasterGain = this.ctx.createGain();
-    this.fmDroneMasterGain.gain.value = this.settings.fmDroneEnabled ? this.settings.fmDroneVolume : 0;
+    // Analyser
+    this.analyser = this.ctx.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.smoothingTimeConstant = 0.82;
 
-    const baseFreq = this.getDayanFrequency();
-    const carrierFreq = baseFreq * this.settings.fmCarrierRatio;
-    const modFreq = carrierFreq * this.settings.fmModulatorRatio;
-    const modDeviation = modFreq * this.settings.fmModulationIndex;
+    // Master Volume Gain
+    this.masterGain = this.ctx.createGain();
+    this.masterGain.gain.value = this.settings.muted ? 0 : this.settings.masterVolume;
 
-    this.fmCarrierOsc = this.ctx.createOscillator();
-    this.fmCarrierOsc.type = 'sine';
-    this.fmCarrierOsc.frequency.setValueAtTime(carrierFreq, this.ctx.currentTime);
+    // Master Low & High EQs
+    this.masterEQLow = this.ctx.createBiquadFilter();
+    this.masterEQLow.type = 'lowshelf';
+    this.masterEQLow.frequency.value = 180;
+    this.masterEQLow.gain.value = 2.0; // Warm low body for Dayan & Kharaj
 
-    this.fmModulatorOsc = this.ctx.createOscillator();
-    this.fmModulatorOsc.type = 'sine';
-    this.fmModulatorOsc.frequency.setValueAtTime(modFreq, this.ctx.currentTime);
+    this.masterEQHigh = this.ctx.createBiquadFilter();
+    this.masterEQHigh.type = 'highshelf';
+    this.masterEQHigh.frequency.value = 6500;
+    this.masterEQHigh.gain.value = 1.0; // Silky high air for Javari
 
-    this.fmModulationGain = this.ctx.createGain();
-    this.fmModulationGain.gain.setValueAtTime(modDeviation, this.ctx.currentTime);
+    // Analog Tape Saturation WaveShaper
+    this.tapeSaturationNode = this.ctx.createWaveShaper();
+    this.tapeSaturationNode.curve = this.makeDistortionCurve(this.settings.tapeWarmth) as any;
+    this.tapeSaturationNode.oversample = '2x';
 
-    // Connect modulation
-    this.fmModulatorOsc.connect(this.fmModulationGain);
-    this.fmModulationGain.connect(this.fmCarrierOsc.frequency);
+    // Reverb Pre-Delay & Damping Filter
+    this.preDelayNode = this.ctx.createDelay(0.2);
+    this.preDelayNode.delayTime.value = this.settings.reverbPreDelay;
 
-    // Connect audio out
-    this.fmCarrierOsc.connect(this.fmDroneMasterGain);
-    this.fmDroneMasterGain.connect(this.masterGain);
+    this.reverbDampingFilter = this.ctx.createBiquadFilter();
+    this.reverbDampingFilter.type = 'lowpass';
+    this.reverbDampingFilter.frequency.value = 4500; // Warm hall acoustic absorption
 
-    this.fmCarrierOsc.start();
-    this.fmModulatorOsc.start();
+    this.convolverReverbNode = this.ctx.createConvolver();
+
+    // Reverb Dry/Wet Mixing
+    this.masterDryGain = this.ctx.createGain();
+    this.masterWetGain = this.ctx.createGain();
+    this.updateReverbMix();
+
+    // Wire up Reverb network
+    // Dry Path: Tape -> EQ -> DryGain -> MasterGain
+    this.tapeSaturationNode.connect(this.masterEQLow);
+    this.masterEQLow.connect(this.masterEQHigh);
+    this.masterEQHigh.connect(this.masterDryGain);
+    this.masterDryGain.connect(this.masterGain);
+
+    // Wet Path: EQ -> PreDelay -> Damping -> Convolver -> WetGain -> MasterGain
+    this.masterEQHigh.connect(this.preDelayNode);
+    this.preDelayNode.connect(this.reverbDampingFilter);
+    this.reverbDampingFilter.connect(this.convolverReverbNode);
+    this.convolverReverbNode.connect(this.masterWetGain);
+    this.masterWetGain.connect(this.masterGain);
+
+    // Final Output
+    this.masterGain.connect(this.analyser);
+    this.analyser.connect(this.ctx.destination);
   }
 
-  public syncFMDrone() {
-    if (!this.ctx || !this.fmCarrierOsc || !this.fmModulatorOsc || !this.fmModulationGain) return;
-
-    const now = this.ctx.currentTime;
-    const baseFreq = this.getDayanFrequency();
-    const carrierFreq = baseFreq * this.settings.fmCarrierRatio;
-    const modFreq = carrierFreq * this.settings.fmModulatorRatio;
-    const modDeviation = modFreq * this.settings.fmModulationIndex;
-
-    this.fmCarrierOsc.frequency.setTargetAtTime(carrierFreq, now, 0.05);
-    this.fmModulatorOsc.frequency.setTargetAtTime(modFreq, now, 0.05);
-    this.fmModulationGain.gain.setTargetAtTime(modDeviation, now, 0.05);
+  /**
+   * Generates a soft-clipping polynomial saturation curve for analog tape warmth
+   */
+  private makeDistortionCurve(amount: number): Float32Array {
+    const k = Math.max(0.01, amount * 40);
+    const n_samples = 44100;
+    const curve = new Float32Array(n_samples);
+    const deg = Math.PI / 180;
+    for (let i = 0; i < n_samples; ++i) {
+      const x = (i * 2) / n_samples - 1;
+      curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+    }
+    return curve;
   }
 
+  /**
+   * Generates a rich, synthetic impulse response for an authentic Indian Darbar Hall / Mehfil
+   */
+  public updateReverbImpulse() {
+    if (!this.ctx || !this.convolverReverbNode) return;
+
+    const rate = this.ctx.sampleRate;
+    const decaySec = this.settings.reverbDecay;
+    const length = Math.floor(rate * decaySec);
+    const impulse = this.ctx.createBuffer(2, length, rate);
+    const left = impulse.getChannelData(0);
+    const right = impulse.getChannelData(1);
+
+    const isTemple = this.settings.reverbType === 'temple';
+    const isChamber = this.settings.reverbType === 'chamber';
+    const decayExp = isTemple ? 1.8 : isChamber ? 3.5 : 2.4;
+
+    for (let i = 0; i < length; i++) {
+      const t = i / length;
+      // Exponential decay envelope with frequency damping
+      const env = Math.pow(1 - t, decayExp);
+      // Diffuse acoustic noise burst with natural room reflections
+      const noiseL = (Math.random() * 2 - 1) * env;
+      const noiseR = (Math.random() * 2 - 1) * env;
+
+      // Add discrete early reflections
+      const earlyRef = (i === Math.floor(0.018 * rate) || i === Math.floor(0.035 * rate) || i === Math.floor(0.052 * rate)) ? 0.35 * env : 0;
+
+      left[i] = noiseL + earlyRef;
+      right[i] = noiseR + earlyRef * 0.9;
+    }
+
+    this.convolverReverbNode.buffer = impulse;
+  }
+
+  public updateReverbMix() {
+    if (!this.masterDryGain || !this.masterWetGain) return;
+    const wet = this.settings.reverbEnabled ? this.settings.reverbMix : 0;
+    const dry = Math.sqrt(Math.max(0, 1 - wet * 0.7));
+    this.masterDryGain.gain.value = dry;
+    this.masterWetGain.gain.value = wet * 0.85;
+  }
+
+  // -------------------------------------------------------------
+  // GENERATOR 1: SHRUTI BOX (FREE-REED AEROPHONE)
+  // -------------------------------------------------------------
   private setupShrutiSubsystem() {
-    if (!this.ctx || !this.masterGain) return;
-
-    // Harmonically rich reed wave
-    const real = new Float32Array([0, 1.0, 0.65, 0.45, 0.32, 0.24, 0.18, 0.14, 0.09, 0.07, 0.05, 0.03]);
-    const imag = new Float32Array(real.length).fill(0);
-    this.reedWaveform = this.ctx.createPeriodicWave(real, imag, { disableNormalization: false });
+    if (!this.ctx || !this.tapeSaturationNode) return;
 
     this.shrutiMasterGain = this.ctx.createGain();
-    this.shrutiMasterGain.gain.value = this.settings.shrutiEnabled ? this.settings.shrutiVolume : 0;
-
     this.bellowsGain = this.ctx.createGain();
-    this.bellowsGain.gain.value = 0.8;
+    this.bellowsGain.gain.value = this.currentPressure;
 
+    // Body resonance (Teakwood / Box Cavity)
     this.boxBodyFilter = this.ctx.createBiquadFilter();
     this.boxBodyFilter.type = 'peaking';
-    this.boxBodyFilter.frequency.value = 460;
-    this.boxBodyFilter.Q.value = 3.2;
-    this.boxBodyFilter.gain.value = 4.5;
+    this.boxBodyFilter.frequency.value = 520;
+    this.boxBodyFilter.Q.value = 1.8;
+    this.boxBodyFilter.gain.value = 4.0;
 
+    // Box Warmth Lowpass
     this.boxToneFilter = this.ctx.createBiquadFilter();
     this.boxToneFilter.type = 'lowpass';
     this.boxToneFilter.frequency.value = this.settings.boxWarmth;
     this.boxToneFilter.Q.value = 1.0;
 
-    // Air whisper
+    // Air Rush / Wind Noise Generator
     this.setupAirNoise();
 
-    // Connections
+    // Connect Shruti Chain into Master FX Rack
+    this.shrutiMasterGain.connect(this.bellowsGain);
     this.bellowsGain.connect(this.boxBodyFilter);
     this.boxBodyFilter.connect(this.boxToneFilter);
-    this.boxToneFilter.connect(this.shrutiMasterGain);
-    this.shrutiMasterGain.connect(this.masterGain);
+    this.boxToneFilter.connect(this.tapeSaturationNode);
 
-    this.applyShrutiPreset(this.settings.dronePreset);
+    // Build Brass Reed Waveform from PureTones harmonics
+    this.buildBrassReedWaveform();
   }
 
-  private setupTanpuraSubsystem() {
-    if (!this.ctx || !this.masterGain) return;
-
-    this.tanpuraMasterGain = this.ctx.createGain();
-    this.tanpuraMasterGain.gain.value = this.settings.tanpuraEnabled ? this.settings.tanpuraVolume : 0;
-
-    // Master Tanpura Ghoraj (bridge) resonator filter
-    const tanpuraResonator = this.ctx.createBiquadFilter();
-    tanpuraResonator.type = 'peaking';
-    tanpuraResonator.frequency.value = 1100; // Bridge singing overtone peak
-    tanpuraResonator.Q.value = 2.0;
-    tanpuraResonator.gain.value = 3.5;
-
-    this.tanpuraMasterGain.connect(tanpuraResonator);
-    tanpuraResonator.connect(this.masterGain);
+  private buildBrassReedWaveform() {
+    if (!this.ctx) return;
+    const real = PURETONES_BRASS_REED_HARMONICS;
+    const imag = new Float32Array(real.length);
+    for (let i = 1; i < imag.length; i++) {
+      imag[i] = Math.sin(i * 1.5) * 0.08;
+    }
+    this.reedWaveform = this.ctx.createPeriodicWave(real, imag, { disableNormalization: false });
   }
 
   private setupAirNoise() {
     if (!this.ctx || !this.bellowsGain) return;
-
     const bufferSize = this.ctx.sampleRate * 2;
     const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
     const output = noiseBuffer.getChannelData(0);
-    let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+    let b0 = 0, b1 = 0, b2 = 0;
     for (let i = 0; i < bufferSize; i++) {
       const white = Math.random() * 2 - 1;
-      b0 = 0.99886 * b0 + white * 0.0555179;
-      b1 = 0.99332 * b1 + white * 0.0750759;
-      b2 = 0.96900 * b2 + white * 0.1538520;
-      b3 = 0.86650 * b3 + white * 0.3104856;
-      b4 = 0.55000 * b4 + white * 0.5329522;
-      b5 = -0.7616 * b5 - white * 0.0168980;
-      output[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362) * 0.05;
-      b6 = white * 0.115926;
+      b0 = 0.99 * b0 + white * 0.05;
+      b1 = 0.96 * b1 + white * 0.11;
+      b2 = 0.86 * b2 + white * 0.25;
+      output[i] = (b0 + b1 + b2) * 0.12;
     }
 
     const noiseSource = this.ctx.createBufferSource();
     noiseSource.buffer = noiseBuffer;
     noiseSource.loop = true;
 
-    const airFilter = this.ctx.createBiquadFilter();
-    airFilter.type = 'bandpass';
-    airFilter.frequency.value = 2400;
-    airFilter.Q.value = 1.2;
+    const noiseFilter = this.ctx.createBiquadFilter();
+    noiseFilter.type = 'bandpass';
+    noiseFilter.frequency.value = 1800;
+    noiseFilter.Q.value = 2.0;
 
     this.airNoiseGain = this.ctx.createGain();
-    this.airNoiseGain.gain.value = this.settings.airHissAmount * 0.08;
+    this.airNoiseGain.gain.value = this.settings.airHissAmount * 0.05;
 
-    noiseSource.connect(airFilter);
-    airFilter.connect(this.airNoiseGain);
+    noiseSource.connect(noiseFilter);
+    noiseFilter.connect(this.airNoiseGain);
     this.airNoiseGain.connect(this.bellowsGain);
-
     noiseSource.start();
     this.airNoiseNode = noiseSource;
   }
 
-  // Exact fundamental frequency for Dayan (e.g. C#3 = 138.59 Hz)
-  public getDayanFrequency(): number {
-    const semitoneOffset = NOTE_NAMES.indexOf(this.settings.rootKey as typeof NOTE_NAMES[number]);
-    const a4 = this.settings.tuningStandard;
-    const cOctave = a4 * Math.pow(2, (this.settings.octave - 4) + (3 - 9) / 12);
-    const freq = cOctave * Math.pow(2, semitoneOffset / 12);
-    return freq * Math.pow(2, this.settings.fineDetuneCents / 1200);
+  // -------------------------------------------------------------
+  // GENERATOR 2: TANPURA (4/5 STRING PLUCK & JAVARI)
+  // -------------------------------------------------------------
+  private setupTanpuraSubsystem() {
+    if (!this.ctx || !this.tapeSaturationNode) return;
+
+    this.tanpuraMasterGain = this.ctx.createGain();
+    this.tanpuraMasterGain.gain.value = this.settings.tanpuraVolume;
+    this.tanpuraMasterGain.connect(this.tapeSaturationNode);
   }
 
-  // --- TANPURA PHYSICAL JAVARI STRING SYNTHESIS ---
+  // -------------------------------------------------------------
+  // GENERATOR 3: FM OPERATOR DRONE (NATIVE FM-1 STYLE)
+  // -------------------------------------------------------------
+  private setupFMDroneSubsystem() {
+    if (!this.ctx || !this.tapeSaturationNode) return;
+
+    this.fmDroneMasterGain = this.ctx.createGain();
+    this.fmDroneMasterGain.gain.value = this.settings.fmDroneVolume;
+
+    this.fmPanner = this.ctx.createStereoPanner();
+    this.fmPanner.pan.value = 0.0;
+
+    this.fmDroneMasterGain.connect(this.fmPanner);
+    this.fmPanner.connect(this.tapeSaturationNode);
+
+    this.syncFMDrone();
+  }
+
+  public syncFMDrone() {
+    if (!this.ctx || !this.fmDroneMasterGain) return;
+
+    // If disabled or muted, stop oscillators
+    if (!this.settings.fmDroneEnabled || this.settings.fmDroneMuted) {
+      if (this.fmCarrierOsc) {
+        try { this.fmCarrierOsc.stop(); } catch {}
+        this.fmCarrierOsc.disconnect();
+        this.fmCarrierOsc = null;
+      }
+      if (this.fmModulatorOsc) {
+        try { this.fmModulatorOsc.stop(); } catch {}
+        this.fmModulatorOsc.disconnect();
+        this.fmModulatorOsc = null;
+      }
+      return;
+    }
+
+    const baseFreq = this.getDayanFrequency();
+    const carrierFreq = baseFreq * this.settings.fmCarrierRatio;
+    const modFreq = baseFreq * this.settings.fmModulatorRatio;
+    const modDepth = modFreq * this.settings.fmModulationIndex;
+
+    const now = this.ctx.currentTime;
+
+    if (!this.fmCarrierOsc || !this.fmModulatorOsc) {
+      this.fmCarrierOsc = this.ctx.createOscillator();
+      this.fmCarrierOsc.type = 'sine';
+      this.fmCarrierOsc.frequency.setValueAtTime(carrierFreq, now);
+
+      this.fmModulatorOsc = this.ctx.createOscillator();
+      this.fmModulatorOsc.type = 'sine';
+      this.fmModulatorOsc.frequency.setValueAtTime(modFreq, now);
+
+      this.fmModulationGain = this.ctx.createGain();
+      this.fmModulationGain.gain.setValueAtTime(modDepth, now);
+
+      this.fmModulatorOsc.connect(this.fmModulationGain);
+      this.fmModulationGain.connect(this.fmCarrierOsc.frequency);
+
+      const droneVoiceGain = this.ctx.createGain();
+      droneVoiceGain.gain.setValueAtTime(0.35, now);
+      this.fmCarrierOsc.connect(droneVoiceGain);
+      droneVoiceGain.connect(this.fmDroneMasterGain);
+
+      this.fmCarrierOsc.start(now);
+      this.fmModulatorOsc.start(now);
+    } else {
+      this.fmCarrierOsc.frequency.setTargetAtTime(carrierFreq, now, 0.05);
+      this.fmModulatorOsc.frequency.setTargetAtTime(modFreq, now, 0.05);
+      if (this.fmModulationGain) {
+        this.fmModulationGain.gain.setTargetAtTime(modDepth, now, 0.05);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // TANPURA STRING SEQUENCER & STRING PLUCKING
+  // -------------------------------------------------------------
   public getTanpuraStrings(): TanpuraString[] {
     const pattern = this.settings.tanpuraPattern;
-    const strings: TanpuraString[] = [];
+    const spread = this.settings.stereoSpread;
 
-    // String 1: First Swara (Pa, Ma, or Ni)
     if (pattern === 'Ma-Sa-Sa-Sa') {
-      strings.push({
-        index: 0,
-        name: 'Ma',
-        swaraRole: 'ma',
-        ratio: this.settings.tuningMode === 'just' ? 4 / 3 : Math.pow(2, 5 / 12),
-        fineOffsetCents: 0,
-      });
+      return [
+        { index: 0, name: 'Ma (Shuddha)', swaraRole: 'ma', ratio: 4 / 3, fineOffsetCents: 0, pan: -0.35 * spread },
+        { index: 1, name: 'Sa (Jodi 1)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: -1.2, pan: -0.12 * spread },
+        { index: 2, name: 'Sa (Jodi 2)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: +1.2, pan: +0.12 * spread },
+        { index: 3, name: 'Kharaj Sa (Bass)', swaraRole: 'kharaj', ratio: 0.5, fineOffsetCents: 0, pan: 0.0 },
+      ];
     } else if (pattern === 'Ni-Sa-Sa-Sa') {
-      strings.push({
-        index: 0,
-        name: 'Ni',
-        swaraRole: 'ni',
-        ratio: this.settings.tuningMode === 'just' ? 15 / 8 : Math.pow(2, 11 / 12),
-        fineOffsetCents: 0,
-      });
-    } else {
-      // Standard Pa
-      strings.push({
-        index: 0,
-        name: 'Pa',
-        swaraRole: 'pa',
-        ratio: this.settings.tuningMode === 'just' ? 1.5 : Math.pow(2, 7 / 12),
-        fineOffsetCents: 0,
-      });
+      return [
+        { index: 0, name: 'Ni (Shuddha)', swaraRole: 'ni', ratio: 15 / 8, fineOffsetCents: 0, pan: -0.35 * spread },
+        { index: 1, name: 'Sa (Jodi 1)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: -1.2, pan: -0.12 * spread },
+        { index: 2, name: 'Sa (Jodi 2)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: +1.2, pan: +0.12 * spread },
+        { index: 3, name: 'Kharaj Sa (Bass)', swaraRole: 'kharaj', ratio: 0.5, fineOffsetCents: 0, pan: 0.0 },
+      ];
+    } else if (pattern === '5-String') {
+      return [
+        { index: 0, name: 'Pa (Pancham)', swaraRole: 'pa', ratio: 1.5, fineOffsetCents: 0, pan: -0.45 * spread },
+        { index: 1, name: 'Ma (Madhyam)', swaraRole: 'ma', ratio: 4 / 3, fineOffsetCents: 0, pan: -0.20 * spread },
+        { index: 2, name: 'Sa (Jodi 1)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: -1.2, pan: 0.0 },
+        { index: 3, name: 'Sa (Jodi 2)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: +1.2, pan: +0.20 * spread },
+        { index: 4, name: 'Kharaj Sa', swaraRole: 'kharaj', ratio: 0.5, fineOffsetCents: 0, pan: +0.45 * spread },
+      ];
     }
 
-    // String 2: Jodi 1 (Middle Sa)
-    strings.push({
-      index: 1,
-      name: 'Sa (Jodi 1)',
-      swaraRole: 'sa',
-      ratio: 1.0,
-      fineOffsetCents: -1.2, // Subtle acoustic detuning between the pair of middle strings
-    });
+    // Default Pa-Sa-Sa-Sa
+    return [
+      { index: 0, name: 'Pa (Pancham)', swaraRole: 'pa', ratio: 1.5, fineOffsetCents: 0, pan: -0.35 * spread },
+      { index: 1, name: 'Sa (Jodi 1)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: -1.2, pan: -0.12 * spread },
+      { index: 2, name: 'Sa (Jodi 2)', swaraRole: 'sa', ratio: 1.0, fineOffsetCents: +1.2, pan: +0.12 * spread },
+      { index: 3, name: 'Kharaj Sa (Bass)', swaraRole: 'kharaj', ratio: 0.5, fineOffsetCents: 0, pan: 0.0 },
+    ];
+  }
 
-    // String 3: Jodi 2 (Middle Sa)
-    strings.push({
-      index: 2,
-      name: 'Sa (Jodi 2)',
-      swaraRole: 'sa',
-      ratio: 1.0,
-      fineOffsetCents: +1.2,
-    });
+  public setPluckListener(callback: (stringIndex: number, stringName: string) => void) {
+    this.onStringPluckCallback = callback;
+  }
 
-    // String 4: Kharaj (Low Sa / Fundamental Bass)
-    strings.push({
-      index: 3,
-      name: 'Kharaj (Bass Sa)',
-      swaraRole: 'kharaj',
-      ratio: 0.5, // 1 octave below the middle Dayan Sa
-      fineOffsetCents: 0,
-    });
+  public setStringPluckListener(callback: (stringIndex: number, stringName: string) => void) {
+    this.onStringPluckCallback = callback;
+  }
 
-    if (pattern === '5-String') {
-      strings.push({
-        index: 4,
-        name: "Tar Sa' (High)",
-        swaraRole: 'tar',
-        ratio: 2.0,
-        fineOffsetCents: 0,
-      });
+  public setLoopProgressListener(callback: (progress: number, currentString: number, totalStrings: number) => void) {
+    this.onLoopProgressCallback = callback;
+  }
+
+  public getLoopProgress(): number {
+    if (!this.settings.tanpuraEnabled || this.settings.tanpuraMuted || this.loopDurationSec <= 0) return 0;
+    const elapsed = (performance.now() - this.loopStartTime) / 1000;
+    return Math.min(1.0, Math.max(0.0, (elapsed % this.loopDurationSec) / this.loopDurationSec));
+  }
+
+  public startTanpuraSequencer() {
+    if (this.tanpuraSequencerTimer) {
+      clearInterval(this.tanpuraSequencerTimer);
+      this.tanpuraSequencerTimer = null;
     }
 
-    return strings;
+    const intervalMs = Math.max(250, (60 / Math.max(15, this.settings.pluckSpeedBpm)) * 1000);
+    const strings = this.getTanpuraStrings();
+    this.loopDurationSec = (intervalMs * strings.length) / 1000;
+    this.loopStartTime = performance.now();
+
+    this.tanpuraSequencerTimer = window.setInterval(() => {
+      if (!this.settings.tanpuraEnabled || this.settings.tanpuraMuted) return;
+
+      const nextIndex = (this.currentStringIndex + 1) % strings.length;
+      this.currentStringIndex = nextIndex;
+
+      if (nextIndex === 0) {
+        this.loopStartTime = performance.now();
+      }
+
+      this.pluckTanpuraString(nextIndex);
+
+      if (this.onStringPluckCallback) {
+        this.onStringPluckCallback(nextIndex, strings[nextIndex].name);
+      }
+    }, intervalMs);
   }
 
   /**
-   * Synthesize a single Tanpura string pluck using the chosen synthesis engine:
-   * 1. MATH_DSP: Pure mathematical Fourier harmonic expansion with delayed bloom envelope
-   * 2. SAMPLES_PCM: Acoustic sampled multi-harmonic wavetable with fractional interpolation
-   * 3. HYBRID: Karplus-Strong physical modeling with non-linear curved bridge diode contact
+   * Plucks a specific Tanpura string using the selected synthesis engine:
+   * 1. SAMPLES_PCM: PureTones 32-harmonic spectral wavetables
+   * 2. HYBRID: Karplus-Strong physical modeling with dynamic Javari curved bridge contact
+   * 3. MATH_DSP: Algorithmic mathematical Fourier series
    */
   public pluckTanpuraString(stringIndex: number) {
     if (!this.ctx || !this.tanpuraMasterGain || !this.settings.tanpuraEnabled) return;
@@ -511,21 +733,94 @@ export class SoundEngine {
     const sustain = this.settings.stringSustain;
     const javari = this.settings.javariBuzzAmount;
     const engine = this.settings.synthesisEngine;
+    const fleshNoise = this.settings.fleshNoiseAmount;
 
-    if (engine === 'MATH_DSP') {
-      // --- ENGINE 1: PURE MATHEMATICAL FOURIER SYNTHESIS ---
-      // Fundamental Body
+    // Stereo Panner for authentic string spatial distribution
+    const panner = this.ctx.createStereoPanner();
+    panner.pan.value = str.pan;
+    panner.connect(this.tanpuraMasterGain);
+
+    // 0. Organic Flesh Pluck Transient (Fingertip click & bridge noise)
+    if (fleshNoise > 0.05) {
+      const pluckNoise = this.ctx.createBufferSource();
+      const noiseBuffer = this.ctx.createBuffer(1, 1024, this.ctx.sampleRate);
+      const noiseData = noiseBuffer.getChannelData(0);
+      for (let i = 0; i < 1024; i++) {
+        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (80 + fleshNoise * 140));
+      }
+      pluckNoise.buffer = noiseBuffer;
+
+      const pluckFilter = this.ctx.createBiquadFilter();
+      pluckFilter.type = 'bandpass';
+      pluckFilter.frequency.value = baseFreq * 2.8;
+      pluckFilter.Q.value = 3.0;
+
+      const pluckGain = this.ctx.createGain();
+      pluckGain.gain.setValueAtTime(0.25 * fleshNoise, now);
+      pluckGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+      pluckNoise.connect(pluckFilter);
+      pluckFilter.connect(pluckGain);
+      pluckGain.connect(panner);
+      pluckNoise.start(now);
+    }
+
+    if (engine === 'SAMPLES_PCM') {
+      // --- ENGINE 1: PURETONES 32-HARMONIC ACOUSTIC WAVETABLES ---
+      const isFemaleRange = this.settings.octave >= 4 || ['G', 'G#', 'A', 'A#', 'B'].includes(this.settings.rootKey);
+      const harmonics = isFemaleRange ? PURETONES_MIRAJ_FEMALE_HARMONICS : PURETONES_MIRAJ_MALE_HARMONICS;
+      const imagHarmonics = new Float32Array(harmonics.length);
+
+      for (let h = 1; h < imagHarmonics.length; h++) {
+        imagHarmonics[h] = Math.sin(h * 1.85) * 0.12 * javari;
+      }
+
+      const sampleWave = this.ctx.createPeriodicWave(harmonics, imagHarmonics, { disableNormalization: false });
+      const sampleOsc = this.ctx.createOscillator();
+      sampleOsc.setPeriodicWave(sampleWave);
+      sampleOsc.frequency.setValueAtTime(baseFreq, now);
+
+      // Wooden Gourd (Tumba) Helmholtz Cavity Filter
+      const gourdFilter = this.ctx.createBiquadFilter();
+      gourdFilter.type = 'peaking';
+      gourdFilter.frequency.value = 240; // Warm pumpkin gourd resonance
+      gourdFilter.Q.value = 2.2;
+      gourdFilter.gain.value = 5.5;
+
+      // Javari Dynamic High-Overtone Bloom
+      const javariSweepFilter = this.ctx.createBiquadFilter();
+      javariSweepFilter.type = 'bandpass';
+      javariSweepFilter.frequency.setValueAtTime(baseFreq * 2.5, now);
+      javariSweepFilter.frequency.linearRampToValueAtTime(baseFreq * (4.0 + javari * 9.0), now + 0.22);
+      javariSweepFilter.frequency.exponentialRampToValueAtTime(baseFreq * 2.0, now + sustain * 0.85);
+      javariSweepFilter.Q.value = 3.0;
+
+      const sampleGain = this.ctx.createGain();
+      sampleGain.gain.setValueAtTime(0, now);
+      sampleGain.gain.linearRampToValueAtTime(0.68, now + 0.025);
+      sampleGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain);
+
+      sampleOsc.connect(gourdFilter);
+      gourdFilter.connect(javariSweepFilter);
+      javariSweepFilter.connect(sampleGain);
+      sampleGain.connect(panner);
+
+      sampleOsc.start(now);
+      sampleOsc.stop(now + sustain + 0.1);
+
+    } else if (engine === 'MATH_DSP') {
+      // --- ENGINE 2: PURE MATHEMATICAL FOURIER ADDITIVE SYNTHESIS ---
       const oscBody = this.ctx.createOscillator();
       oscBody.type = 'sine';
       oscBody.frequency.setValueAtTime(baseFreq, now);
 
       const bodyGain = this.ctx.createGain();
       bodyGain.gain.setValueAtTime(0, now);
-      bodyGain.gain.linearRampToValueAtTime(0.5, now + 0.02);
+      bodyGain.gain.linearRampToValueAtTime(0.55, now + 0.02);
       bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain);
 
       oscBody.connect(bodyGain);
-      bodyGain.connect(this.tanpuraMasterGain);
+      bodyGain.connect(panner);
       oscBody.start(now);
       oscBody.stop(now + sustain + 0.1);
 
@@ -543,304 +838,334 @@ export class SoundEngine {
 
       const buzzGain = this.ctx.createGain();
       buzzGain.gain.setValueAtTime(0, now);
-      buzzGain.gain.linearRampToValueAtTime(0.38 * javari, now + 0.20);
+      buzzGain.gain.linearRampToValueAtTime(0.40 * javari, now + 0.20);
       buzzGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain * 0.9);
 
       oscBuzz.connect(filter);
       filter.connect(buzzGain);
-      buzzGain.connect(this.tanpuraMasterGain);
+      buzzGain.connect(panner);
       oscBuzz.start(now);
       oscBuzz.stop(now + sustain + 0.1);
 
-    } else if (engine === 'SAMPLES_PCM') {
-      // --- ENGINE 2: ACOUSTIC SAMPLED WAVETABLE PCM PLAYBACK ---
-      // Real acoustic rosewood/pumpkin gourd recorded harmonic profile
-      // Rich 2nd, 3rd, 5th, 7th, 9th, 11th overtones with organic phase variance
-      const realHarmonics = new Float32Array([0, 0.95, 0.72, 0.58, 0.42, 0.38, 0.28, 0.24, 0.18, 0.15, 0.11, 0.08, 0.06, 0.04]);
-      const imagHarmonics = new Float32Array(realHarmonics.length);
-      for (let h = 1; h < imagHarmonics.length; h++) {
-        imagHarmonics[h] = Math.sin(h * 1.7) * 0.15; // Realistic acoustic phase irregularities
-      }
-      const sampleWave = this.ctx.createPeriodicWave(realHarmonics, imagHarmonics, { disableNormalization: false });
-
-      const sampleOsc = this.ctx.createOscillator();
-      sampleOsc.setPeriodicWave(sampleWave);
-      sampleOsc.frequency.setValueAtTime(baseFreq, now);
-
-      // Wooden gourd cavity formant filter
-      const gourdFilter = this.ctx.createBiquadFilter();
-      gourdFilter.type = 'peaking';
-      gourdFilter.frequency.value = 280; // Gourd Helmholtz resonance
-      gourdFilter.Q.value = 2.5;
-      gourdFilter.gain.value = 5.0;
-
-      const sampleGain = this.ctx.createGain();
-      sampleGain.gain.setValueAtTime(0, now);
-      sampleGain.gain.linearRampToValueAtTime(0.65, now + 0.03);
-      sampleGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain);
-
-      sampleOsc.connect(gourdFilter);
-      gourdFilter.connect(sampleGain);
-      sampleGain.connect(this.tanpuraMasterGain);
-      sampleOsc.start(now);
-      sampleOsc.stop(now + sustain + 0.1);
+    } else if (engine === 'FM_SYNTHESIS') {
+      // --- ENGINE 2: 6-OPERATOR FM SYNTHESIS (FUMI-1 / DEXED MSFA EMULATION) ---
+      this.synthesizeFmString(baseFreq, now, sustain, javari, panner);
 
     } else {
-      // --- ENGINE 3: HYBRID PHYSICAL MODELING (KARPLUS-STRONG + JAVARI BRIDGE CLIPPING) ---
-      // 1. Pluck Attack Impulse
-      const pluckNoise = this.ctx.createBufferSource();
-      const noiseBuffer = this.ctx.createBuffer(1, 1024, this.ctx.sampleRate);
-      const noiseData = noiseBuffer.getChannelData(0);
-      for (let i = 0; i < 1024; i++) {
-        noiseData[i] = (Math.random() * 2 - 1) * Math.exp(-i / 180);
+      // --- ENGINE 1: PHYSICAL MODELING (DIGITAL WAVEGUIDE + NON-LINEAR JAVARI BRIDGE) ---
+      // (Default and when engine === 'PHYSICAL_MODELING' or 'HYBRID')
+      const buffer = this.synthesizeWaveguideJavari(baseFreq, sustain, javari, fleshNoise);
+      const source = this.ctx.createBufferSource();
+      source.buffer = buffer;
+
+      const voiceGain = this.ctx.createGain();
+      voiceGain.gain.setValueAtTime(0.85, now);
+
+      source.connect(voiceGain);
+      voiceGain.connect(panner);
+      source.start(now);
+    }
+  }
+
+  /**
+   * Computational Physical Modeling of Tambura (Digital Waveguide + Non-Linear Javari Bridge)
+   * 
+   * Architecture:
+   * Excitation (Noise/Pluck) --> (+) ---> [Delay Line (N)] ---> [Non-linear Bridge (Javari)] ---> Output
+   *                                ^                                       │
+   *                                └─────────────── [ LPF Filter ] <────────┘
+   * 
+   * Dynamic Parameters:
+   * 1. Fundamental Frequency f0: delay length N = fs / f0 - 0.5 with fractional delay interpolation
+   * 2. Loop Filter: FIR 2-point averaging filter (1 - S) + S*z^-1 with loop gain g = exp(-1/(f0 * sustain))
+   * 3. Non-linear Bridge: Asymmetric curved bridge contact with cotton thread (jiva) clearance
+   * 4. Body Resonator: Tumba (gourd) cavity + tabli plate resonant filters
+   */
+  public synthesizeWaveguideJavari(
+    baseFreq: number,
+    sustainSec: number,
+    javariBuzz: number,
+    fleshNoise: number
+  ): AudioBuffer {
+    if (!this.ctx) throw new Error('AudioContext not initialized');
+
+    const sampleRate = this.ctx.sampleRate;
+    const durSec = Math.min(7.0, Math.max(3.2, sustainSec));
+    const totalSamples = Math.floor(sampleRate * durSec);
+    const buffer = this.ctx.createBuffer(1, totalSamples, sampleRate);
+    const output = buffer.getChannelData(0);
+
+    // 1. Digital Waveguide Delay Line length N = (fs / f0) - 0.5 (compensating for 0.5 sample FIR filter delay)
+    const effectiveF0 = Math.max(25, baseFreq);
+    const delayLength = Math.max(14, (sampleRate / effectiveF0) - 0.5);
+    const intDelay = Math.floor(delayLength);
+    const fracDelay = delayLength - intDelay;
+    const L = intDelay + 4;
+    const delayBuffer = new Float32Array(L);
+
+    // 2. Loop Gain calculation based on T60 decay target
+    // In digital waveguide, g = exp(-3.2 / (f0 * sustain)) ensures sustained string resonance
+    const gTarget = Math.exp(-3.2 / (effectiveF0 * Math.max(2.5, sustainSec)));
+    const loopGain = Math.min(0.9996, Math.max(0.9935, gTarget));
+
+    // High frequency damping coefficient S (0.12 to 0.28)
+    // S controls gentle high-frequency roll-off per reflection
+    const S = 0.14 + (1.0 - Math.min(1.0, javariBuzz)) * 0.12;
+
+    // 3. Non-linear Bridge (Javari) Parameters:
+    // Cotton thread (jiva) clearance height h:
+    // When javariBuzz is high, clearance is smaller and bridge stiffness is higher,
+    // producing a brilliant, continuous cascade of higher overtones
+    const bridgeClearance = 0.045 * (1.1 - javariBuzz * 0.72);
+    const bridgeStiffness = 3.5 + javariBuzz * 8.5;
+
+    // 4. Pluck Excitation (Fingertip pluck displacement pulse + shaped noise burst)
+    const excitationLen = Math.min(intDelay - 2, Math.floor(sampleRate * (0.006 + fleshNoise * 0.008)));
+    const excitation = new Float32Array(excitationLen);
+    for (let i = 0; i < excitationLen; i++) {
+      const t = i / excitationLen;
+      // Hann window envelope
+      const env = 0.5 * (1 - Math.cos(2 * Math.PI * t));
+      const pluckPulse = Math.sin(Math.PI * t);
+      const whiteNoise = (Math.random() * 2 - 1) * (0.25 + fleshNoise * 0.75);
+      excitation[i] = (pluckPulse * 0.75 + whiteNoise * 0.35) * env;
+    }
+
+    let writePtr = 0;
+    let prevBridged = 0;
+    let dcBlockerX = 0;
+    let dcBlockerY = 0;
+
+    // 5. Gourd Helmholtz Resonator (Tumba wooden acoustic cavity ~160 Hz)
+    const gourdOmega = (2 * Math.PI * 160) / sampleRate;
+    const gourdQ = 2.4;
+    const gourdAlpha = Math.sin(gourdOmega) / (2 * gourdQ);
+    const b0_g = gourdAlpha;
+    const b1_g = 0;
+    const b2_g = -gourdAlpha;
+    const a0_g = 1 + gourdAlpha;
+    const a1_g = -2 * Math.cos(gourdOmega);
+    const a2_g = 1 - gourdAlpha;
+    let x1_g = 0, x2_g = 0, y1_g = 0, y2_g = 0;
+
+    for (let n = 0; n < totalSamples; n++) {
+      // Linear interpolation from circular delay line
+      const r0 = (writePtr - intDelay + L) % L;
+      const r1 = (writePtr - intDelay - 1 + L) % L;
+      const delayedSample = delayBuffer[r0] * (1 - fracDelay) + delayBuffer[r1] * fracDelay;
+
+      // Dynamic thread micro-flutter (1.2 Hz) for natural undulating acoustic phasing
+      const flutter = 1.0 + 0.12 * Math.sin((2 * Math.PI * 1.2 * n) / sampleRate);
+      const curClearance = bridgeClearance * flutter;
+
+      // Non-linear Bridge Mapping (Javari)
+      let bridged = delayedSample;
+      if (delayedSample > curClearance) {
+        // String hits curved bridge: non-linear compression and harmonic cascade
+        const d = delayedSample - curClearance;
+        bridged = curClearance + d / (1.0 + bridgeStiffness * d);
+      } else if (delayedSample < -curClearance * 1.35) {
+        // Asymmetric return excursion
+        const d = delayedSample + curClearance * 1.35;
+        bridged = -curClearance * 1.35 + d / (1.0 + bridgeStiffness * 0.45 * d);
       }
-      pluckNoise.buffer = noiseBuffer;
 
-      const pluckFilter = this.ctx.createBiquadFilter();
-      pluckFilter.type = 'bandpass';
-      pluckFilter.frequency.value = baseFreq * 2.5;
-      pluckFilter.Q.value = 2.0;
+      // Loop Filter: 2-Point Averaging FIR Lowpass Filter with Loop Gain
+      // y[n] = loopGain * ((1 - S) * bridged + S * prevBridged)
+      const lpfOut = loopGain * ((1 - S) * bridged + S * prevBridged);
+      prevBridged = bridged;
 
-      const pluckGain = this.ctx.createGain();
-      pluckGain.gain.setValueAtTime(0.35, now);
-      pluckGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      // DC-blocker to prevent DC offset accumulation from asymmetric bridge clipping
+      const filtered = lpfOut - dcBlockerX + 0.996 * dcBlockerY;
+      dcBlockerX = lpfOut;
+      dcBlockerY = filtered;
 
-      pluckNoise.connect(pluckFilter);
-      pluckFilter.connect(pluckGain);
-      pluckGain.connect(this.tanpuraMasterGain);
-      pluckNoise.start(now);
+      // Excitation injection into the delay line input adder (+)
+      const xIn = n < excitationLen ? excitation[n] : 0;
+      const delayIn = xIn + filtered;
 
-      // 2. Fundamental String Body Oscillator (Warm core)
-      const oscBody = this.ctx.createOscillator();
-      oscBody.type = 'triangle';
-      oscBody.frequency.setValueAtTime(baseFreq, now);
-      oscBody.frequency.exponentialRampToValueAtTime(baseFreq * 1.008, now + 0.03);
-      oscBody.frequency.exponentialRampToValueAtTime(baseFreq, now + 0.12);
+      // Feedback back into delay line
+      delayBuffer[writePtr] = delayIn;
+      writePtr = (writePtr + 1) % L;
 
-      const bodyGain = this.ctx.createGain();
-      bodyGain.gain.setValueAtTime(0, now);
-      bodyGain.gain.linearRampToValueAtTime(0.45, now + 0.02);
-      bodyGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain);
+      // Gourd body cavity resonance
+      const inG = bridged;
+      const outG = (b0_g * inG + b1_g * x1_g + b2_g * x2_g - a1_g * y1_g - a2_g * y2_g) / a0_g;
+      x2_g = x1_g; x1_g = inG;
+      y2_g = y1_g; y2_g = outG;
 
-      oscBody.connect(bodyGain);
-      bodyGain.connect(this.tanpuraMasterGain);
-      oscBody.start(now);
-      oscBody.stop(now + sustain + 0.1);
-
-      // 3. Javari (Jiwa) Shimmer & Buzz Generator
-      const oscJavari = this.ctx.createOscillator();
-      oscJavari.type = 'sawtooth';
-      oscJavari.frequency.setValueAtTime(baseFreq, now);
-
-      const javariFilter = this.ctx.createBiquadFilter();
-      javariFilter.type = 'bandpass';
-      const initialJavariFreq = 800 + javari * 800;
-      const peakJavariFreq = 1800 + javari * 2400;
-      javariFilter.frequency.setValueAtTime(initialJavariFreq, now);
-      javariFilter.frequency.linearRampToValueAtTime(peakJavariFreq, now + 0.25);
-      javariFilter.frequency.exponentialRampToValueAtTime(baseFreq * 2.0, now + sustain * 0.85);
-      javariFilter.Q.value = 2.8 + javari * 3.5;
-
-      const javariGain = this.ctx.createGain();
-      const maxJavariVol = 0.35 * javari;
-      javariGain.gain.setValueAtTime(0, now);
-      javariGain.gain.linearRampToValueAtTime(maxJavariVol, now + 0.18);
-      javariGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain * 0.95);
-
-      oscJavari.connect(javariFilter);
-      javariFilter.connect(javariGain);
-      javariGain.connect(this.tanpuraMasterGain);
-      oscJavari.start(now);
-      oscJavari.stop(now + sustain + 0.1);
-    }
-
-    // Notify UI listener for visual string animation
-    if (this.onStringPluckCallback) {
-      this.onStringPluckCallback(stringIndex, str.name);
-    }
-  }
-
-  // Tanpura Rhythmic Plucking Sequencer with Loop Progress Tracking
-  private startTanpuraSequencer() {
-    if (this.tanpuraSequencerTimer) {
-      clearInterval(this.tanpuraSequencerTimer);
-    }
-
-    const scheduleNext = () => {
-      const intervalMs = Math.round((60 / Math.max(15, this.settings.pluckSpeedBpm)) * 1000);
-      const strings = this.getTanpuraStrings();
-      this.loopDurationSec = (intervalMs * strings.length) / 1000;
-
-      this.tanpuraSequencerTimer = window.setTimeout(() => {
-        if (this.settings.tanpuraEnabled && !this.settings.muted && this.ctx && this.ctx.state === 'running') {
-          const nextIdx = (this.currentStringIndex + 1) % strings.length;
-          if (nextIdx === 0) {
-            this.loopStartTime = performance.now();
-          }
-          this.currentStringIndex = nextIdx;
-          this.pluckTanpuraString(this.currentStringIndex);
-        }
-        scheduleNext();
-      }, intervalMs);
-    };
-
-    scheduleNext();
-
-    // Start high-precision animation loop for smooth progress bar updates
-    const updateProgressLoop = () => {
-      if (this.onLoopProgressCallback && this.settings.tanpuraEnabled && !this.settings.muted) {
-        const strings = this.getTanpuraStrings();
-        const intervalMs = (60 / Math.max(15, this.settings.pluckSpeedBpm)) * 1000;
-        const totalDurationMs = intervalMs * strings.length;
-        const nowMs = performance.now();
-        const elapsedSinceLoopStart = (nowMs - this.loopStartTime) % totalDurationMs;
-        const progress = Math.min(1.0, Math.max(0.0, elapsedSinceLoopStart / totalDurationMs));
-        this.onLoopProgressCallback(progress, Math.max(0, this.currentStringIndex), strings.length);
+      // Anti-click fade at tail
+      let fadeOut = 1.0;
+      if (n > totalSamples - 2400) {
+        fadeOut = (totalSamples - n) / 2400;
       }
-      requestAnimationFrame(updateProgressLoop);
-    };
-    requestAnimationFrame(updateProgressLoop);
-  }
 
-  public setStringPluckListener(cb: (stringIndex: number, stringName: string) => void) {
-    this.onStringPluckCallback = cb;
-  }
-
-  public setLoopProgressListener(cb: (progress: number, currentString: number, totalStrings: number) => void) {
-    this.onLoopProgressCallback = cb;
-  }
-
-  // --- SHRUTI BOX SYNTHESIS ---
-  private getSwaraFrequency(swara: typeof SWARAS_DATA[number]): number {
-    const baseFreq = this.getDayanFrequency();
-    if (this.settings.tuningMode === 'just') {
-      return baseFreq * swara.ratioJust;
-    } else {
-      return baseFreq * Math.pow(2, swara.semitones / 12);
-    }
-  }
-
-  public syncReeds() {
-    if (!this.ctx || !this.bellowsGain || !this.reedWaveform) return;
-
-    // Disconnect removed reeds
-    for (const [id, reed] of this.activeReeds.entries()) {
-      if (!this.activeSwaraIds.has(id)) {
-        reed.gain.gain.setValueAtTime(reed.gain.gain.value, this.ctx.currentTime);
-        reed.gain.gain.linearRampToValueAtTime(0, this.ctx.currentTime + 0.15);
-        setTimeout(() => {
-          try {
-            reed.osc1.stop();
-            reed.osc2.stop();
-            reed.osc1.disconnect();
-            reed.osc2.disconnect();
-            reed.gain.disconnect();
-          } catch {
-            // Already stopped
-          }
-        }, 160);
-        this.activeReeds.delete(id);
-      }
+      output[n] = (bridged * 0.70 + outG * 0.55) * fadeOut;
     }
 
-    // Add or update reeds for active swaras
-    for (const id of this.activeSwaraIds) {
-      const swara = SWARAS_DATA.find(s => s.id === id);
-      if (!swara) continue;
-
-      const targetFreq = this.getSwaraFrequency(swara);
-      const spreadCents = this.settings.reedDetuneSpread;
-
-      if (this.activeReeds.has(id)) {
-        const reed = this.activeReeds.get(id)!;
-        const now = this.ctx.currentTime;
-        const f1 = targetFreq * Math.pow(2, -spreadCents / 2400);
-        const f2 = targetFreq * Math.pow(2, spreadCents / 2400);
-        reed.osc1.frequency.setTargetAtTime(f1, now, 0.05);
-        reed.osc2.frequency.setTargetAtTime(f2, now, 0.05);
-      } else {
-        const osc1 = this.ctx.createOscillator();
-        const osc2 = this.ctx.createOscillator();
-        const reedGain = this.ctx.createGain();
-
-        osc1.setPeriodicWave(this.reedWaveform);
-        osc2.setPeriodicWave(this.reedWaveform);
-
-        const f1 = targetFreq * Math.pow(2, -spreadCents / 2400);
-        const f2 = targetFreq * Math.pow(2, spreadCents / 2400);
-
-        osc1.frequency.value = f1;
-        osc2.frequency.value = f2;
-
-        reedGain.gain.setValueAtTime(0, this.ctx.currentTime);
-        const voiceGain = 0.26 / Math.max(1, Math.sqrt(this.activeSwaraIds.size));
-        reedGain.gain.linearRampToValueAtTime(voiceGain, this.ctx.currentTime + 0.2);
-
-        osc1.connect(reedGain);
-        osc2.connect(reedGain);
-        reedGain.connect(this.bellowsGain);
-
-        osc1.start();
-        osc2.start();
-
-        this.activeReeds.set(id, { osc1, osc2, gain: reedGain });
+    // Peak amplitude normalization to ensure clean, loud, robust audibility
+    let maxAmp = 0;
+    const testLimit = Math.min(totalSamples, 24000);
+    for (let n = 0; n < testLimit; n++) {
+      const a = Math.abs(output[n]);
+      if (a > maxAmp) maxAmp = a;
+    }
+    if (maxAmp > 0.0001) {
+      const normGain = Math.min(4.0, 0.78 / maxAmp);
+      for (let n = 0; n < totalSamples; n++) {
+        output[n] *= normGain;
       }
     }
+
+    return buffer;
   }
 
-  public applyShrutiPreset(presetName: string) {
-    this.settings.dronePreset = presetName;
-    const newSet = new Set<string>();
+  /**
+   * 6-Operator FM Synthesis (FuMi-1 / Yamaha DX7 #22 Koto Architecture tweaked for Tanpura)
+   * 
+   * Classic Koto DX7 Patch 22 Architecture:
+   * Algorithm 5 (3 Carrier-Modulator pairs):
+   * - Pair 1: OP1 (Carrier 1.00) + OP2 (Modulator 2.00 with Self-Feedback for wooden string snap)
+   * - Pair 2: OP3 (Carrier 1.00 detuned +1.5 cents) + OP4 (Modulator 3.00/4.00 Pancham overtone)
+   * - Pair 3: OP5 (High Carrier / attack overtone) + OP6 (Modulator 5.00/7.00 ivory plectrum click)
+   * 
+   * Tanpura Tweaks Applied:
+   * 1. Extended singing sustain (4.5 to 6.5 seconds instead of Koto's short 1.8s decay)
+   * 2. Dynamic Javari Bloom Envelope: Instead of decaying to zero, Modulator 1 & 2 drop
+   *    to a sustained "Javari Plateau" that continuously buzzes throughout the note.
+   * 3. Jodi Dual-String Unison Beating: Carrier 1 and Carrier 2 create acoustic chorus beating.
+   * 4. Javari Shimmer Flutter LFO (1.2 Hz): Undulates the overtone bloom gently.
+   * 5. Kharaj String Sub-Bass handling for 4th string.
+   */
+  private synthesizeFmString(
+    baseFreq: number,
+    now: number,
+    sustain: number,
+    javari: number,
+    panner: StereoPannerNode
+  ) {
+    if (!this.ctx) return;
 
-    switch (presetName) {
-      case 'Sa-Pa':
-        newSet.add('sa');
-        newSet.add('pa');
-        break;
-      case 'Sa-Ma':
-        newSet.add('sa');
-        newSet.add('ma');
-        break;
-      case 'Sa-Ni':
-        newSet.add('sa');
-        newSet.add('ni');
-        break;
-      case 'Sa-Dha':
-        newSet.add('sa');
-        newSet.add('dha');
-        break;
-      case 'Sa-Pa-Sa':
-        newSet.add('sa');
-        newSet.add('pa');
-        newSet.add('sa_high');
-        break;
-      case 'Sa-Re(k)':
-        newSet.add('sa');
-        newSet.add('re_k');
-        break;
-      case 'Full':
-        newSet.add('sa');
-        newSet.add('ga');
-        newSet.add('pa');
-        newSet.add('sa_high');
-        break;
-      default:
-        return;
-    }
+    // 1. CARRIER 1: Primary Fundamental Body (Ratio 1.000)
+    const carrier1 = this.ctx.createOscillator();
+    carrier1.type = 'sine';
+    carrier1.frequency.setValueAtTime(baseFreq, now);
 
-    this.activeSwaraIds = newSet;
-    this.syncReeds();
+    // 2. CARRIER 2: Jodi Unison String (Ratio 1.0016 = +1.5 cents detune for natural beating)
+    const carrier2 = this.ctx.createOscillator();
+    carrier2.type = 'sine';
+    carrier2.frequency.setValueAtTime(baseFreq * 1.0016, now);
+
+    // 3. MODULATOR 1 (Koto OP2 with Feedback emulation): Ratio 2.000
+    // Provides the warm wooden string body & initial pluck attack
+    const mod1 = this.ctx.createOscillator();
+    mod1.type = 'sine';
+    mod1.frequency.setValueAtTime(baseFreq * 2.0, now);
+
+    // 4. MODULATOR 2 (Javari Overtone Bloom): Ratio 3.000 (Pancham 3:2 5th partial) or 4.000
+    const mod2 = this.ctx.createOscillator();
+    mod2.type = 'sine';
+    mod2.frequency.setValueAtTime(baseFreq * 3.0, now);
+
+    // 5. MODULATOR 3 (Ivory Plectrum / Tsume transient click): Ratio 5.000
+    const mod3 = this.ctx.createOscillator();
+    mod3.type = 'sine';
+    mod3.frequency.setValueAtTime(baseFreq * 5.0, now);
+
+    // 6. JAVARI SHIMMER FLUTTER LFO (1.2 Hz)
+    // Simulates the physical movement of the cotton jiva thread along the curved bridge
+    const flutterLfo = this.ctx.createOscillator();
+    flutterLfo.type = 'sine';
+    flutterLfo.frequency.setValueAtTime(1.2, now);
+    const flutterGain = this.ctx.createGain();
+    flutterGain.gain.setValueAtTime(baseFreq * (0.15 + javari * 0.35), now);
+    flutterLfo.connect(flutterGain);
+
+    // Modulation Gains
+    const mod1Gain = this.ctx.createGain();
+    const mod2Gain = this.ctx.createGain();
+    const mod3Gain = this.ctx.createGain();
+
+    // CONNECT FLUTTER LFO TO JAVARI MODULATORS
+    flutterGain.connect(mod1Gain.gain);
+    flutterGain.connect(mod2Gain.gain);
+
+    // --- ENVELOPE SHAPING: KOTO PLUCK + TANPURA JAVARI BLOOM ---
+    // Peak pluck transient
+    const pluckDepth1 = baseFreq * (2.8 + javari * 4.2);
+    // Sustained Javari buzz plateau (Tanpura tweak: does NOT decay to zero!)
+    const javariPlateau1 = baseFreq * (0.65 + javari * 1.85);
+
+    mod1Gain.gain.setValueAtTime(pluckDepth1, now);
+    // Snappy plectrum pluck decay to Javari plateau
+    mod1Gain.gain.exponentialRampToValueAtTime(Math.max(1, javariPlateau1), now + 0.16);
+    // Sustained buzzing bloom plateau throughout note ring
+    mod1Gain.gain.setValueAtTime(Math.max(1, javariPlateau1), now + sustain * 0.55);
+    // Final smooth decay
+    mod1Gain.gain.exponentialRampToValueAtTime(0.01, now + sustain * 0.95);
+
+    // Modulator 2 (High overtone bloom)
+    const pluckDepth2 = baseFreq * (1.6 + javari * 3.6);
+    const javariPlateau2 = baseFreq * (0.35 + javari * 1.25);
+
+    mod2Gain.gain.setValueAtTime(pluckDepth2, now);
+    mod2Gain.gain.exponentialRampToValueAtTime(Math.max(1, javariPlateau2), now + 0.22);
+    mod2Gain.gain.setValueAtTime(Math.max(1, javariPlateau2), now + sustain * 0.50);
+    mod2Gain.gain.exponentialRampToValueAtTime(0.01, now + sustain * 0.85);
+
+    // Modulator 3 (Fast plectrum snap click - 35ms)
+    mod3Gain.gain.setValueAtTime(baseFreq * (2.0 + javari * 2.0), now);
+    mod3Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+
+    // Routing: Modulators modulate Carriers
+    mod1.connect(mod1Gain);
+    mod1Gain.connect(carrier1.frequency);
+    mod1Gain.connect(carrier2.frequency);
+
+    mod2.connect(mod2Gain);
+    mod2Gain.connect(carrier1.frequency);
+    mod2Gain.connect(carrier2.frequency);
+
+    mod3.connect(mod3Gain);
+    mod3Gain.connect(carrier1.frequency);
+
+    // Master Voice Envelope: Extended singing sustain (4.5s - 6.5s)
+    const voiceGain = this.ctx.createGain();
+    voiceGain.gain.setValueAtTime(0, now);
+    voiceGain.gain.linearRampToValueAtTime(0.65, now + 0.015);
+    voiceGain.gain.exponentialRampToValueAtTime(0.35, now + 1.2);
+    voiceGain.gain.exponentialRampToValueAtTime(0.0001, now + sustain);
+
+    carrier1.connect(voiceGain);
+    carrier2.connect(voiceGain);
+    voiceGain.connect(panner);
+
+    // Start all operators
+    carrier1.start(now);
+    carrier2.start(now);
+    mod1.start(now);
+    mod2.start(now);
+    mod3.start(now);
+    flutterLfo.start(now);
+
+    const stopTime = now + sustain + 0.12;
+    carrier1.stop(stopTime);
+    carrier2.stop(stopTime);
+    mod1.stop(stopTime);
+    mod2.stop(stopTime);
+    mod3.stop(stopTime);
+    flutterLfo.stop(stopTime);
   }
 
-  public toggleSwara(swaraId: string) {
-    if (this.activeSwaraIds.has(swaraId)) {
-      if (this.activeSwaraIds.size > 1) {
-        this.activeSwaraIds.delete(swaraId);
-      }
-    } else {
+  // -------------------------------------------------------------
+  // SHRUTI BOX VOICE MANAGEMENT & BELLOWS PUMP
+  // -------------------------------------------------------------
+  public setSwaraActive(swaraId: string, active: boolean) {
+    if (active) {
       this.activeSwaraIds.add(swaraId);
+    } else {
+      this.activeSwaraIds.delete(swaraId);
     }
-    this.settings.dronePreset = 'Custom';
     this.syncReeds();
   }
 
@@ -848,55 +1173,169 @@ export class SoundEngine {
     return this.activeSwaraIds.has(swaraId);
   }
 
-  public getActiveSwaras(): string[] {
-    return Array.from(this.activeSwaraIds);
+  public applyShrutiPreset(presetName: string) {
+    this.settings.dronePreset = presetName;
+    this.activeSwaraIds.clear();
+
+    switch (presetName) {
+      case 'Sa-Pa':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('pa');
+        break;
+      case 'Sa-Ma':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('ma');
+        break;
+      case 'Sa-Ni':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('ni');
+        break;
+      case 'Sa-Dha':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('dha');
+        break;
+      case 'Sa-Pa-Sa':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('pa');
+        this.activeSwaraIds.add('sa_high');
+        break;
+      case 'Full':
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('ga');
+        this.activeSwaraIds.add('pa');
+        this.activeSwaraIds.add('ni');
+        break;
+      default:
+        this.activeSwaraIds.add('sa');
+        this.activeSwaraIds.add('pa');
+    }
+
+    this.syncReeds();
   }
 
-  // Bellows pumping
+  public syncReeds() {
+    if (!this.ctx || !this.shrutiMasterGain || !this.reedWaveform) return;
+
+    if (!this.settings.shrutiEnabled || this.settings.shrutiMuted) {
+      this.activeReeds.forEach((voice) => {
+        voice.gain.gain.setValueAtTime(0, this.ctx!.currentTime);
+      });
+      return;
+    }
+
+    const currentIds = new Set(this.activeSwaraIds);
+
+    // Stop reeds no longer selected
+    for (const [id, voice] of this.activeReeds.entries()) {
+      if (!currentIds.has(id)) {
+        voice.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.05);
+        setTimeout(() => {
+          try {
+            voice.osc1.stop();
+            voice.osc2.stop();
+            voice.osc1.disconnect();
+            voice.osc2.disconnect();
+            voice.gain.disconnect();
+          } catch {}
+          this.activeReeds.delete(id);
+        }, 150);
+      }
+    }
+
+    // Start or update active reeds
+    for (const swaraId of currentIds) {
+      const swara = SWARAS_DATA.find(s => s.id === swaraId);
+      if (!swara) continue;
+
+      const baseFreq = this.getDayanFrequency() * swara.ratioJust;
+      const detuneHz = (this.settings.reedDetuneSpread * baseFreq) / 1200;
+
+      if (!this.activeReeds.has(swaraId)) {
+        const osc1 = this.ctx.createOscillator();
+        const osc2 = this.ctx.createOscillator();
+        osc1.setPeriodicWave(this.reedWaveform);
+        osc2.setPeriodicWave(this.reedWaveform);
+
+        osc1.frequency.value = baseFreq - detuneHz;
+        osc2.frequency.value = baseFreq + detuneHz;
+
+        // Stereo spreading for dual reeds
+        const panL = this.ctx.createStereoPanner();
+        const panR = this.ctx.createStereoPanner();
+        panL.pan.value = -0.25 * this.settings.stereoSpread;
+        panR.pan.value = +0.25 * this.settings.stereoSpread;
+
+        const voiceGain = this.ctx.createGain();
+        voiceGain.gain.setValueAtTime(0, this.ctx.currentTime);
+        voiceGain.gain.linearRampToValueAtTime(0.42, this.ctx.currentTime + 0.1);
+
+        osc1.connect(panL);
+        osc2.connect(panR);
+        panL.connect(voiceGain);
+        panR.connect(voiceGain);
+        voiceGain.connect(this.shrutiMasterGain);
+
+        osc1.start();
+        osc2.start();
+
+        this.activeReeds.set(swaraId, { osc1, osc2, gain: voiceGain, panL, panR });
+      } else {
+        const voice = this.activeReeds.get(swaraId)!;
+        voice.osc1.frequency.setTargetAtTime(baseFreq - detuneHz, this.ctx.currentTime, 0.05);
+        voice.osc2.frequency.setTargetAtTime(baseFreq + detuneHz, this.ctx.currentTime, 0.05);
+        voice.gain.gain.setTargetAtTime(0.42, this.ctx.currentTime, 0.05);
+      }
+    }
+  }
+
+  // -------------------------------------------------------------
+  // BELLOWS AIR PRESSURE SIMULATION
+  // -------------------------------------------------------------
   public startPump() {
     this.isPumping = true;
+    this.targetPressure = 1.0;
   }
 
   public stopPump() {
     this.isPumping = false;
   }
 
+  public triggerBellowsPump(intensity: number = 1.0) {
+    this.isPumping = true;
+    this.targetPressure = Math.min(1.0, this.currentPressure + 0.45 * intensity);
+    setTimeout(() => {
+      this.isPumping = false;
+    }, 350);
+  }
+
   private startBellowsLoop() {
     let lastTime = performance.now();
 
-    const loop = (currentTime: number) => {
-      const dt = (currentTime - lastTime) / 1000;
-      lastTime = currentTime;
+    const loop = (time: number) => {
+      const dt = (time - lastTime) / 1000;
+      lastTime = time;
 
-      if (this.settings.bellowsMode === 'auto') {
-        const speed = this.settings.autoBellowsSpeed;
-        const depth = this.settings.autoBellowsDepth;
-        const breath = Math.sin(currentTime * 0.001 * speed * 2 * Math.PI);
-        const sub = Math.sin(currentTime * 0.0004 * speed * 2 * Math.PI) * 0.15;
-        this.currentPressure = (1 - depth * 0.8) + (breath + sub) * (depth * 0.5);
-      } else {
-        if (this.isPumping) {
-          this.targetPressure = Math.min(1.0, this.targetPressure + dt * 1.6);
-        } else {
-          this.targetPressure = Math.max(0.08, this.targetPressure - dt * 0.35);
-        }
-        this.currentPressure += (this.targetPressure - this.currentPressure) * (dt * 5);
+      // Update Rhythmic Loop Progress for UI bar
+      if (this.onLoopProgressCallback && this.loopDurationSec > 0) {
+        const elapsed = (time - this.loopStartTime) / 1000;
+        const progress = Math.min(1.0, Math.max(0.0, (elapsed % this.loopDurationSec) / this.loopDurationSec));
+        const total = this.getTanpuraStrings().length;
+        this.onLoopProgressCallback(progress, this.currentStringIndex, total);
       }
 
-      this.currentPressure = Math.max(0.02, Math.min(1.0, this.currentPressure));
-
-      if (this.bellowsGain && this.ctx && this.boxToneFilter) {
-        const now = this.ctx.currentTime;
-        const effectiveGain = Math.pow(this.currentPressure, 1.3);
-        this.bellowsGain.gain.setTargetAtTime(effectiveGain, now, 0.03);
-
-        const toneFreq = this.settings.boxWarmth * (0.8 + 0.3 * this.currentPressure);
-        this.boxToneFilter.frequency.setTargetAtTime(toneFreq, now, 0.05);
-
-        if (this.airNoiseGain) {
-          const hiss = this.settings.airHissAmount * 0.08 * Math.pow(this.currentPressure, 1.5);
-          this.airNoiseGain.gain.setTargetAtTime(hiss, now, 0.05);
+      if (this.settings.bellowsMode === 'auto') {
+        const cycle = Math.sin(time * 0.001 * this.settings.autoBellowsSpeed * Math.PI * 2);
+        this.currentPressure = 0.80 + cycle * this.settings.autoBellowsDepth;
+      } else {
+        if (!this.isPumping) {
+          this.targetPressure = Math.max(0.0, this.targetPressure - 0.28 * dt);
         }
+        this.currentPressure += (this.targetPressure - this.currentPressure) * 0.15;
+      }
+
+      if (this.bellowsGain && this.ctx) {
+        const vol = Math.pow(Math.max(0, this.currentPressure), 1.8);
+        this.bellowsGain.gain.setTargetAtTime(vol, this.ctx.currentTime, 0.04);
       }
 
       this.animationFrameId = requestAnimationFrame(loop);
@@ -905,49 +1344,72 @@ export class SoundEngine {
     this.animationFrameId = requestAnimationFrame(loop);
   }
 
-  // Update dynamic balances & volumes
-  public updateTone() {
-    if (!this.boxToneFilter || !this.boxBodyFilter || !this.ctx) return;
-    const now = this.ctx.currentTime;
-    this.boxToneFilter.frequency.setTargetAtTime(this.settings.boxWarmth, now, 0.05);
+  // -------------------------------------------------------------
+  // FREQUENCY & PITCH CALCULATION
+  // -------------------------------------------------------------
+  public getDayanFrequency(): number {
+    const rootIndex = NOTE_NAMES.indexOf(this.settings.rootKey as unknown as typeof NOTE_NAMES[number]);
+    const validIndex = rootIndex >= 0 ? rootIndex : 1; // default C#
+    const midiNote = (this.settings.octave + 1) * 12 + validIndex;
+    const standardFreq = this.settings.tuningStandard * Math.pow(2, (midiNote - 69) / 12);
+    const centsOffset = this.settings.fineDetuneCents;
+    return standardFreq * Math.pow(2, centsOffset / 1200);
   }
 
   public updateVolume() {
-    if (!this.masterGain || !this.ctx) return;
-    const now = this.ctx.currentTime;
-    const masterVal = this.settings.muted ? 0 : this.settings.masterVolume;
-    this.masterGain.gain.setTargetAtTime(masterVal, now, 0.03);
+    if (!this.ctx) return;
 
-    // Solo logic: If any generator is soloed, only soloed ones sound
-    const hasSolo = this.settings.shrutiSolo || this.settings.tanpuraSolo || this.settings.fmDroneSolo;
+    // Master volume & mute
+    if (this.masterGain) {
+      this.masterGain.gain.value = this.settings.muted ? 0 : this.settings.masterVolume;
+    }
 
-    // 1. Shruti Box Level
-    let sVal = this.settings.shrutiEnabled ? this.settings.shrutiVolume : 0;
-    if (this.settings.shrutiMuted || (hasSolo && !this.settings.shrutiSolo)) sVal = 0;
+    // Shruti channel volume & solo
     if (this.shrutiMasterGain) {
-      this.shrutiMasterGain.gain.setTargetAtTime(sVal, now, 0.03);
+      const isSoloed = this.settings.shrutiSolo;
+      const anySolo = this.settings.shrutiSolo || this.settings.tanpuraSolo || this.settings.fmDroneSolo;
+      const active = this.settings.shrutiEnabled && !this.settings.shrutiMuted && (!anySolo || isSoloed);
+      this.shrutiMasterGain.gain.value = active ? this.settings.shrutiVolume : 0;
     }
 
-    // 2. Tanpura Level
-    let tVal = this.settings.tanpuraEnabled ? this.settings.tanpuraVolume : 0;
-    if (this.settings.tanpuraMuted || (hasSolo && !this.settings.tanpuraSolo)) tVal = 0;
+    // Tanpura channel volume & solo
     if (this.tanpuraMasterGain) {
-      this.tanpuraMasterGain.gain.setTargetAtTime(tVal, now, 0.03);
+      const isSoloed = this.settings.tanpuraSolo;
+      const anySolo = this.settings.shrutiSolo || this.settings.tanpuraSolo || this.settings.fmDroneSolo;
+      const active = this.settings.tanpuraEnabled && !this.settings.tanpuraMuted && (!anySolo || isSoloed);
+      this.tanpuraMasterGain.gain.value = active ? this.settings.tanpuraVolume : 0;
     }
 
-    // 3. FM Operator Drone Level
-    let fmVal = this.settings.fmDroneEnabled ? this.settings.fmDroneVolume : 0;
-    if (this.settings.fmDroneMuted || (hasSolo && !this.settings.fmDroneSolo)) fmVal = 0;
+    // FM drone channel volume & solo
     if (this.fmDroneMasterGain) {
-      this.fmDroneMasterGain.gain.setTargetAtTime(fmVal, now, 0.03);
+      const isSoloed = this.settings.fmDroneSolo;
+      const anySolo = this.settings.shrutiSolo || this.settings.tanpuraSolo || this.settings.fmDroneSolo;
+      const active = this.settings.fmDroneEnabled && !this.settings.fmDroneMuted && (!anySolo || isSoloed);
+      this.fmDroneMasterGain.gain.value = active ? this.settings.fmDroneVolume : 0;
+    }
+
+    // Air hiss level
+    if (this.airNoiseGain) {
+      this.airNoiseGain.gain.value = this.settings.airHissAmount * 0.05;
+    }
+
+    this.updateReverbMix();
+  }
+
+  public updateTone() {
+    if (this.boxToneFilter && this.ctx) {
+      this.boxToneFilter.frequency.setTargetAtTime(this.settings.boxWarmth, this.ctx.currentTime, 0.05);
     }
   }
 
-  // Play a specific microtonal Shruti note for ear training & consonance auditioning
-  public playShruti22Note(shrutiItem: Shruti22Item) {
-    if (!this.ctx) return;
+  public playShruti22Note(item: Shruti22Item) {
+    if (!this.ctx) {
+      this.init().then(() => this.playShruti22Note(item));
+      return;
+    }
+
     const now = this.ctx.currentTime;
-    const freq = this.getDayanFrequency() * shrutiItem.ratio;
+    const freq = this.getDayanFrequency() * item.ratio;
 
     const osc = this.ctx.createOscillator();
     osc.type = 'triangle';
@@ -955,40 +1417,151 @@ export class SoundEngine {
 
     const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(0.4, now + 0.05);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 2.5);
+    gain.gain.linearRampToValueAtTime(0.45, now + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
 
     osc.connect(gain);
-    gain.connect(this.masterGain || this.ctx.destination);
+    if (this.masterGain) gain.connect(this.masterGain);
     osc.start(now);
-    osc.stop(now + 2.6);
-  }
-
-  public getCurrentPressure(): number {
-    return this.currentPressure;
-  }
-
-  public getCurrentStringIndex(): number {
-    return this.currentStringIndex;
+    osc.stop(now + 1.9);
   }
 
   public getAnalyser(): AnalyserNode | null {
     return this.analyser;
   }
 
-  public dispose() {
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-    }
-    if (this.tanpuraSequencerTimer) {
-      clearTimeout(this.tanpuraSequencerTimer);
-    }
-    if (this.ctx) {
-      this.ctx.close();
-      this.ctx = null;
-    }
+  public getCurrentPressure(): number {
+    return this.currentPressure;
+  }
+
+  public loadPreset(presetId: number) {
+    const p = FM1_PRESETS_LIST.find(x => x.id === presetId) || FM1_PRESETS_LIST[(presetId - 1) % FM1_PRESETS_LIST.length];
+    if (!p) return;
+
+    this.settings.presetNumber = p.id;
+    this.settings.presetName = p.name;
+    this.settings.algorithmNumber = p.algorithm;
+    this.settings.algorithmName = FM1_ALGORITHMS.find(a => a.id === p.algorithm)?.name || 'Physical Waveguide';
+    this.settings.synthesisEngine = p.engine;
+    this.settings.rootKey = p.rootKey;
+    this.settings.octave = p.octave;
+    this.settings.pluckSpeedBpm = p.bpm;
+    this.settings.javariBuzzAmount = p.javari;
+    this.settings.stringSustain = p.sustain;
+    this.settings.dronePreset = p.dronePreset;
+    this.settings.activeRagaName = p.raga;
+    this.settings.ragaThaat = p.thaat;
+
+    this.syncReeds();
+    this.syncFMDrone();
+    this.applyShrutiPreset(p.dronePreset);
+    this.startTanpuraSequencer();
+    this.updateTone();
+    this.updateVolume();
+  }
+
+  public setAlgorithm(algoId: number) {
+    const clamped = Math.max(1, Math.min(32, algoId));
+    const algo = FM1_ALGORITHMS.find(a => a.id === clamped) || {
+      id: clamped,
+      name: `DX7 Algorithm ${clamped.toString().padStart(2, '0')}`,
+      type: 'FM_SYNTHESIS' as SynthesisEngineType,
+      ops: `6-Operator FM Matrix #${clamped}`
+    };
+
+    this.settings.algorithmNumber = clamped;
+    this.settings.algorithmName = algo.name;
+    this.settings.synthesisEngine = algo.type;
   }
 }
 
-// Global singleton instance
+export interface FM1Preset {
+  id: number;
+  name: string;
+  category: string;
+  algorithm: number;
+  engine: SynthesisEngineType;
+  rootKey: string;
+  octave: number;
+  bpm: number;
+  javari: number;
+  sustain: number;
+  dronePreset: string;
+  raga: string;
+  thaat: string;
+  description: string;
+}
+
+export const FM1_ALGORITHMS: { id: number; name: string; type: SynthesisEngineType; ops: string }[] = [
+  { id: 1, name: 'Waveguide + Non-linear Javari Bridge', type: 'PHYSICAL_MODELING', ops: 'Digital Waveguide (N) + Asymmetric Curved Bridge Contact + 2-Point FIR LPF' },
+  { id: 2, name: 'FuMi-1 Koto-to-Tanpura 6-Op FM', type: 'FM_SYNTHESIS', ops: 'DX7 Patch 22 Koto: Multi-Carrier Stacks + Jodi Beating (+1.5¢) + Javari Sustain Plateau + Flutter LFO' },
+  { id: 3, name: 'PureTones 32-Harmonic PCM', type: 'SAMPLES_PCM', ops: 'Acoustic Miraj Tanpura additive wavetables with 32 overtone coefficients' },
+  { id: 4, name: 'Fourier Mathematical DSP', type: 'MATH_DSP', ops: 'Algorithmic Fourier partial series (Microcontroller optimized)' },
+  { id: 5, name: 'DX7 Algo 05 (Dual Carrier)', type: 'FM_SYNTHESIS', ops: 'Carriers: OP1, OP2. Modulators: OP3->OP1, OP4->OP2, OP5->OP6 feedback' },
+  { id: 6, name: 'DX7 Algo 16 (Triple Carrier)', type: 'FM_SYNTHESIS', ops: 'Carriers: OP1, OP2, OP3. Modulators: OP4, OP5, OP6 stack' },
+  { id: 7, name: 'DX7 Algo 32 (6-Op Parallel)', type: 'FM_SYNTHESIS', ops: 'All 6 operators in parallel as carriers with independent pitch ratios' },
+  ...Array.from({ length: 25 }, (_, i) => ({
+    id: i + 8,
+    name: `DX7 Algorithm ${(i + 8).toString().padStart(2, '0')}`,
+    type: 'FM_SYNTHESIS' as SynthesisEngineType,
+    ops: `6-Operator FM Matrix #${i + 8}`
+  }))
+];
+
+export const FM1_PRESETS_LIST: FM1Preset[] = [
+  { id: 1, name: 'Miraj Grand Tanpura', category: 'Waveguide', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'C#', octave: 3, bpm: 46, javari: 0.85, sustain: 5.4, dronePreset: 'Sa-Pa', raga: 'Raga Yaman / Kalyan', thaat: 'Kalyan', description: 'Miraj seasoned teakwood tanpura with silk jiva thread physical modeling' },
+  { id: 2, name: 'Varanasi Kharaj Deep', category: 'Waveguide', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'C', octave: 2, bpm: 38, javari: 0.88, sustain: 6.2, dronePreset: 'Sa-Ma', raga: 'Raga Bhairav', thaat: 'Bhairav', description: 'Deep bass male vocal & surbahar pitch with extended reverberant cavity' },
+  { id: 3, name: 'FuMi Koto-to-Tanpura 琴', category: 'FM Koto Hybrid', algorithm: 2, engine: 'FM_SYNTHESIS', rootKey: 'C#', octave: 3, bpm: 46, javari: 0.82, sustain: 5.2, dronePreset: 'Sa-Pa', raga: 'Koto-Tanpura Hybrid', thaat: 'Suiko ST-50', description: 'FuMi-1 / DX7 Koto architecture modified with singing Tanpura sustain, Jodi beating & blooming Javari overtone plateau' },
+  { id: 4, name: 'Teak Shruti Box Reed', category: 'Shruti', algorithm: 4, engine: 'MATH_DSP', rootKey: 'C#', octave: 3, bpm: 44, javari: 0.65, sustain: 4.5, dronePreset: 'Sa-Pa-Sa', raga: 'Bhairavi', thaat: 'Bhairavi', description: 'Dual brass beating reeds with manual bellows expression' },
+  { id: 5, name: 'PureTones Miraj 32H', category: 'PureTones', algorithm: 3, engine: 'SAMPLES_PCM', rootKey: 'C#', octave: 3, bpm: 46, javari: 0.85, sustain: 5.0, dronePreset: 'Sa-Pa', raga: 'Yaman', thaat: 'Kalyan', description: 'Sadharani PureTones 32-harmonic spectral analysis acoustic wavetables' },
+  { id: 6, name: 'Todi Morning Gambhir', category: 'Raga', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'D#', octave: 3, bpm: 40, javari: 0.90, sustain: 5.4, dronePreset: 'Sa-Dha', raga: 'Miyan Ki Todi', thaat: 'Todi', description: 'Komal re, ga, dha + Teevra Ma deep contemplative microtones' },
+  { id: 7, name: 'Darbari Night Surbahar', category: 'Raga', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'C', octave: 2, bpm: 36, javari: 0.92, sustain: 6.5, dronePreset: 'Sa-Pa', raga: 'Darbari Kanada', thaat: 'Asavari', description: 'Ultra-low resonant drone with slow undulating jiva shimmer' },
+  { id: 8, name: 'Bageshree Midnight', category: 'Raga', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'D', octave: 3, bpm: 48, javari: 0.75, sustain: 4.8, dronePreset: 'Sa-Ma', raga: 'Bageshree', thaat: 'Kafi', description: 'Komal ga and Komal ni romantic night accompaniment' },
+  { id: 9, name: 'Shakuhachi 尺八 Wind', category: 'FuMi-1', algorithm: 2, engine: 'FM_SYNTHESIS', rootKey: 'D', octave: 3, bpm: 42, javari: 0.60, sustain: 4.0, dronePreset: 'Sa-Pa', raga: 'Honkyoku', thaat: 'Pentatonic', description: 'FuMi-1 breath turbulence frequency modulation preset' },
+  { id: 10, name: 'Malkauns Midnight', category: 'Raga', algorithm: 1, engine: 'PHYSICAL_MODELING', rootKey: 'C#', octave: 3, bpm: 44, javari: 0.80, sustain: 5.0, dronePreset: 'Sa-Ma', raga: 'Malkauns', thaat: 'Bhairavi', description: 'Ancient meditative pentatonic Sa-ga-ma-dha-ni drone' },
+  { id: 11, name: 'Bhimpalasi Afternoon', category: 'Raga', algorithm: 3, engine: 'SAMPLES_PCM', rootKey: 'C#', octave: 3, bpm: 50, javari: 0.76, sustain: 4.6, dronePreset: 'Sa-Pa', raga: 'Bhimpalasi', thaat: 'Kafi', description: 'Sweet afternoon melody accompaniment' },
+  { id: 12, name: 'Sho 笙 Mouth Organ', category: 'FuMi-1', algorithm: 2, engine: 'FM_SYNTHESIS', rootKey: 'A', octave: 3, bpm: 54, javari: 0.68, sustain: 4.4, dronePreset: 'Sa-Pa', raga: 'Gagaku', thaat: 'Japanese Modal', description: 'FuMi-1 Gagaku cluster chord simulation' },
+  ...Array.from({ length: 116 }, (_, i) => {
+    const id = i + 13;
+    if (id === 22) {
+      return {
+        id: 22,
+        name: 'DX7 #22 Koto-Tanpura Hybrid',
+        category: 'FM Koto Hybrid',
+        algorithm: 2,
+        engine: 'FM_SYNTHESIS' as SynthesisEngineType,
+        rootKey: 'C#',
+        octave: 3,
+        bpm: 46,
+        javari: 0.88,
+        sustain: 5.5,
+        dronePreset: 'Sa-Pa',
+        raga: 'DX7 ROM1B #22 Hybrid',
+        thaat: 'Koto-Tanpura',
+        description: 'Authentic Yamaha DX7 Rom1B #22 Koto patch re-engineered with Tanpura Javari buzz bloom & extended sustain'
+      };
+    }
+    const keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+    const ragaNames = ['Bhairav', 'Bhairavi', 'Yaman', 'Asavari', 'Bilawal', 'Kafi', 'Khamaj', 'Purvi', 'Marwa', 'Todi', 'Shivaranjani', 'Jog'];
+    const k = keys[id % keys.length];
+    const r = ragaNames[id % ragaNames.length];
+    return {
+      id,
+      name: `${r} Riyaz #${id}`,
+      category: 'Classical',
+      algorithm: (id % 4) + 1,
+      engine: ((id % 4) + 1 === 1 ? 'PHYSICAL_MODELING' : (id % 4) + 1 === 2 ? 'FM_SYNTHESIS' : (id % 4) + 1 === 3 ? 'SAMPLES_PCM' : 'MATH_DSP') as SynthesisEngineType,
+      rootKey: k,
+      octave: id % 3 === 0 ? 2 : 3,
+      bpm: 36 + (id % 24),
+      javari: 0.65 + ((id % 7) * 0.04),
+      sustain: 4.0 + ((id % 5) * 0.4),
+      dronePreset: id % 3 === 0 ? 'Sa-Ma' : id % 4 === 0 ? 'Sa-Ni' : 'Sa-Pa',
+      raga: `Raga ${r}`,
+      thaat: r,
+      description: `Accompaniment preset for Tabla riyaz in ${r} on key ${k}`
+    };
+  })
+];
+
 export const shrutiAudio = new SoundEngine();

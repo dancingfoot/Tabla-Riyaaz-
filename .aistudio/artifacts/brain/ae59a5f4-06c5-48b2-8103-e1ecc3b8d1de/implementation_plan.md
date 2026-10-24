@@ -1,98 +1,85 @@
-# Revised Implementation Plan: PureTones Acoustic Wavetables, 3-Generator Mixer, Indian Music History & Tabla Riyaz Reference
+# Implementation Plan: Karplus-Strong Physical Modeling with Javari Bridge
 
-## Overview
-This revised plan expands the project to incorporate key research from **Sadharani PureTones**, adds a dedicated **3-Generator Sound Mixer** (Shruti Box, Tanpura, and FM Operator Drone) with independent mute/solo/mix controls, implements an interactive **Indian Music History & 22-Shruti Evolution** system, introduces a complete **Tabla Riyaz & Taal Reference Library** with preferred BPMs and historical contexts, and provides a turnkey **GitHub Pages deployment workflow**.
-
----
-
-## 1. PureTones Sample Feasibility & Wavetable Engine
-
-### Can PureTones Samples be Used on the M-VAVE FM-1?
-**Yes, exceptionally well!**
-* **The Problem with Long Samples**: Storing raw multi-second 44.1 kHz PCM audio files consumes ~176 KB per second. Storing 10-15 long notes would quickly fill the MCU's SPI Flash.
-* **The Solution (Acoustic Single-Cycle Wavetables & Transients)**:
-  * PureTones utilizes periodic spectral models derived from high-resolution recordings of master Miraj Tanpuras and brass harmonium reeds.
-  * We extract **single-cycle wavetable frames (1024 to 2048 samples)** capturing the exact physical overtone spectrum and non-linear phase offsets.
-  * **Memory Footprint**: A 2048-sample 16-bit wavetable takes only **4 KB of Flash memory**! The FM-1's JieLi AC791N processor can store over 30 full master instrument wavetables in under 120 KB, easily fitting into both web and embedded hardware.
-  * **Synthesis Behavior**: The wavetable provides 100% authentic acoustic timber, while the DSP code calculates dynamic pitch shifting, Javari bridge bloom, and filter envelopes without sample pitch-stretching artifacts.
+## User Review & Decision
+- **Question**: "have we implemented the Karplus-Strong?"
+- **Clarification Outcome**: The user confirmed keeping the **extended Karplus-Strong with Javari bridge** model (the computationally efficient digital waveguide + non-linear bridge described in physical modeling acoustics).
+- **Identified Issue**: The user previously noted *"cannot hear anything in the waveguide engine"*. Investigation of `src/audio/shrutiEngine.ts` revealed an indexing mismatch between the excitation buffer initialization and the read/write pointer loop in `synthesizeWaveguideJavari`, causing the pluck excitation to be overwritten before circulating, leading to silent or near-silent output.
 
 ---
 
-## 2. 3-Generator Sound Mixer (Shruti, Tanpura, FM Operator Drone)
+## Technical Architecture: Extended Karplus-Strong with Javari Bridge
 
-We will introduce a dedicated Mixer module allowing the musician to blend, mute, and solo three distinct sound generators:
+The Karplus-Strong algorithm is extended with a non-linear reflection operator simulating the wide, gently curved wooden bridge (*javari*) and cotton thread (*jiva*):
 
-| Generator | Sound Origin | DSP Architecture | Dedicated Controls |
-| :--- | :--- | :--- | :--- |
-| **1. Shruti Box** | Free-reed aerophone | Dual beating brass reeds, teakwood body resonance filter, air bellows pressure modulation. | Volume, Mute, Solo, Tone (Cutoff), Bellows speed. |
-| **2. Tanpura** | Plucked 4/5 string | PureTones acoustic wavetable + Karplus-Strong string decay + dynamic cotton thread Javari bridge bloom. | Volume, Mute, Solo, Javari Buzz %, String Sustain, Pluck BPM. |
-| **3. FM Operator Drone ("Dome")** | Native FM-1 2-Operator FM engine | Chowning 2-Operator FM synthesis: $y(t) = A \sin(\omega_c t + I(t) \sin(\omega_m t))$ with carrier ratio, modulator ratio, and feedback loop. | Volume, Mute, Solo, Modulator Ratio (1:1, 1:2, 2:3, 3:2), FM Index (brightness), Feedback depth. |
+```
+Excitation (Pluck & Flesh Noise)
+           │
+           ▼
+        (  +  ) ◄────────────────────────────────────────────────────┐
+           │                                                         │
+           ▼                                                         │
+   [ Digital Waveguide ]                                       [ Loop Filter ]
+   Delay Line N = fs / f0                                     Low-pass FIR (1-S) + S·z⁻¹
+           │                                                   with Loop Gain g
+           ▼                                                         │
+   [ Javari Non-linear Bridge ] ──┬──────────────────────────────────┘
+   Asymmetric Soft-Clipping /     │
+   Clearance Modulation           ▼
+                          [ Body Resonators ] ──► Audio Output
+                          (Gourd & Tabli Plate)
+```
 
-* **Master Mixer**:
-  * Individual Mute (`M`) and Solo (`S`) buttons for all 3 generators.
-  * Live visual VU meters on the FM-1 screen and on the web UI.
-
----
-
-## 3. Indian Music History & 22-Shruti Evolution (PureTones Research)
-
-Add an interactive educational module documenting the historical evolution of Indian scales and tuning:
-
-1. **Vedic Era (Sama Gana, ~1500–1000 BCE)**:
-   * Chants based on descending modal scales (*Krushta*, *Prathama*, *Dvitiya*, *Tritiya*, *Chaturtha*, *Mandra*, *Atisvarya*).
-   * Transition from ancient 3-tone *Samika* chants to the foundational 7-note *Saptak*.
-2. **Classical Era: Bharata Muni's *Natya Shastra* (~200 BCE–200 CE)**:
-   * The *Shadja Grama* and *Madhyama Grama*.
-   * The legendary **Sarana Chatushtayi Experiment**: Two identical 22-string vinas tuned and shifted over 4 successive cycles to demonstrate the 22 Shrutis and isolate the microtonal **Pramana Comma** ($\frac{81}{80} \approx 21.51\text{ cents}$).
-3. **Medieval Synthesis: Sarangadeva's *Sangita Ratnakara* (13th Century)**:
-   * Identification and naming of all 22 Shrutis (*Tivra*, *Kumudvati*, *Manda*, *Chandovati*, *Dayavati*, *Ranjani*, etc.) across five Jatis (*Dipta*, *Ayata*, *Karuna*, *Mridu*, *Madhya*).
-4. **Modern Systems: Bhatkhande's 10 Thaats & 72 Melakarta**:
-   * Venkatamakhin's mathematical 72 Melakarta system in Carnatic music.
-   * Pandit Vishnu Narayan Bhatkhande's 10 Thaat classification system for Hindustani ragas.
-5. **Interactive 22-Shruti Microtonal Table & Consonance Calculator**:
-   * View all 22 Shrutis with their Sanskrit names, exact fractions, cents, and acoustic intervals.
-   * Visual consonance indicators showing **Vadi** (sonant), **Samvadi** (consonant: pure fourths/fifths), **Anuvadi** (assonant), and **Vivadi** (dissonant semitones).
-
----
-
-## 4. Dedicated Tabla Riyaz & Taal Reference Library (Non-Engine Educational Tab)
-
-A comprehensive practice reference designed specifically for tabla players:
-
-### Included Taals:
-* **Teental** (16 Matras - 4x4, Dha Dhin Dhin Dha)
-* **Jhaptal** (10 Matras - 2-3-2-3, Dhi Na Dhi Dhi Na)
-* **Rupak** (7 Matras - 3-2-2, Tin Tin Na Dhi Na Dhi Na)
-* **Ektaal** (12 Matras - 2x6, Dhin Dhin DhaGe Tirakita Tu Na)
-* **Keherwa** (8 Matras - 4x2, Dha Ge Na Ti Na Ka Dhi Na)
-* **Dadra** (6 Matras - 3x2, Dha Dhi Na Dha Tu Na)
-* **Chachar / Deepchandi** (14 Matras - 3-4-3-4)
-* **Bhajani / Khemta** (8 Matras)
-* **Tilwada** (16 Matras - Vilambit Khyal)
-
-### Features per Taal:
-* **Interactive Theka Visualizer**: Displays Vibhags, Matras, Bols, Sam (X), Tali (2, 3, 4), and Khali (0).
-* **Preferred BPM Buttons**: One-click tempo buttons for **Vilambit** (Slow, 30–50 BPM), **Madhyalaya** (Medium, 60–90 BPM), and **Drut** (Fast, 110–180 BPM) that instantly set the Tanpura accompaniment plucking tempo!
-* **Historical Context Modal**: Origins, connection to Pakhawaj/Dhrupad vs Khayal, Gharana styles (Delhi, Ajrada, Farrukhabad, Lucknow, Benares, Punjab).
-* **Variations & Practice Themes**: Common *Peshkar*, *Kaida*, *Rela*, and *Tihai* themes for each taal.
+1. **Digital Waveguide Delay Line ($N$)**:
+   - Delay length $N = \frac{f_s}{f_0} - 0.5$ samples, using fractional delay linear/allpass interpolation for pitch accuracy across all tambura tunings (Kharaj, Pancham, Jodi, Gandhar, Nishad).
+   - Buffer memory footprint: only $\sim 200 - 1500$ floating-point words per string voice.
+2. **Loop Filter ($LPF$) & Loop Gain ($g$)**:
+   - Two-point averaging filter $y[n] = g \cdot ((1 - S) \cdot x[n] + S \cdot x[n-1])$ simulating internal string dissipation and air damping.
+   - Loop gain $g = \exp\left(\frac{-3.0}{f_0 \cdot \text{sustain}}\right)$ carefully bounded ($g \in [0.994, 0.9996]$) to maintain long, singing drone decay (4.5 to 7.0 seconds) without runaway instability.
+3. **Non-Linear Javari Bridge (Cotton Thread Model)**:
+   - When the string excursion exceeds clearance height $h$ (sculpted by the cotton thread slider), contact with the parabolic bridge limits displacement:
+     $$y_{\text{bridge}} = h + \frac{x - h}{1 + k \cdot (x - h)} \quad (\text{for } x > h)$$
+   - This asymmetric contact redistributes energy into a dense cascade of upper harmonics (the characteristic *jivari* buzz) with gentle micro-flutter phasing.
+4. **Wooden Gourd / Tabli Resonator**:
+   - Dual biquad cavity resonance simulating the hollow wooden/gourd body of a Miraj tanpura (~160 Hz Helmholtz cavity + 420 Hz tabli plate resonance).
 
 ---
 
-## 5. GitHub Pages Deployment Workflow
+## Proposed Changes
 
-To host the web version on GitHub Pages (`https://<username>.github.io/fumi-1/`):
-1. **Vite Configuration**: Set `base: './'` in `vite.config.ts` for relative asset linking.
-2. **GitHub Actions Workflow (`.github/workflows/deploy.yml`)**:
-   * Automated build on push to `main`.
-   * Sets up Node.js, runs `npm install`, runs `npm run build`, and publishes `dist/` to the `gh-pages` branch.
-3. **In-App Deployment Guide**:
-   * Instructions for enabling GitHub Pages in repo settings with zero configuration.
+### 1. `src/audio/shrutiEngine.ts`
+- **Fix Delay Line Buffer Mechanics**:
+  - Restructure the circular waveguide buffer so the read pointer $r = (w - N + L) \pmod L$ correctly samples the initial excitation and recirculates filtered samples seamlessly without indexing offset overwrites.
+  - Scale excitation pulse (Hann-tapered impulse + band-limited finger-flesh noise burst) to nominal $0.8$ peak.
+- **Calibrate Javari Function & Loop Gain**:
+  - Re-tune the non-linear transfer curve so the harmonic bloom sustains vibrantly throughout the note without premature damping or clipping distortion.
+  - Implement dynamic cotton thread clearance ($h$) and bridge curvature ($k$) driven directly by the `javari` parameter.
+- **Ensure Gain Staging**:
+  - Connect buffer source to output panner with calibrated gain and soft-knee limiter to ensure loud, crisp, and clean audibility matching FM and Math DSP engines.
+
+### 2. `src/components/SoundMixer.tsx` & UI Controls
+- **Engine Selector**:
+  - Clearly label the mode: **"Waveguide (Karplus-Strong + Javari)"** so the implementation is prominent and transparent.
+- **Real-Time Physical Modeling Sliders**:
+  - **Sustain & Damping**: Adjusts Karplus-Strong loop filter coefficient $S$ and loop gain $g$.
+  - **Javari / Thread (Jiva)**: Controls the non-linear bridge clearance and overtone bloom.
+  - **Pluck / Flesh Noise**: Controls the initial excitation burst texture (flesh vs plectrum).
+- **Acoustic Visualizer**:
+  - Ensure the string vibration and spectrum visualizers display the rich harmonic cascade generated by the Karplus-Strong waveguide engine.
 
 ---
 
-## 6. Execution Steps
-1. Update `src/audio/shrutiEngine.ts` to add the 3-Generator Mixer and FM Operator Drone engine.
-2. Create `src/components/TablaReference.tsx` for the full Taal library with preferred BPMs and historical contexts.
-3. Create `src/components/IndianMusicHistory.tsx` documenting Vedic Sama Gana, Bharata's 22 Shrutis, and the consonance engine.
-4. Update `src/components/FM1Hardware.tsx` and `src/App.tsx` with mixer strips, tabs, and clean light UI.
-5. Create `.github/workflows/deploy.yml` and test production build.
+## Verification Plan
+
+### Automated Verification
+1. Run `compile_applet` to ensure zero compilation or TypeScript errors.
+2. Run `lint_applet` to ensure clean code standards.
+
+### Manual Verification
+1. Open the preview app.
+2. Select **"Waveguide (Karplus-Strong + Javari)"** synthesis engine.
+3. Pluck individual strings (Pa, Sa1, Sa2, Sa3) and confirm:
+   - Immediate, clear, loud plucked response (confirming silence bug is resolved).
+   - Rich, authentic Indian tambura buzzing timbre (*javari*).
+   - Long, singing sustain (4–6 seconds) with natural acoustic decay.
+4. Adjust Javari and Pluck sliders to verify real-time physical modeling response.
+5. Start continuous auto-sequence to verify multi-string polyphonic waveguide resonance.

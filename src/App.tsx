@@ -246,15 +246,27 @@ export default function App() {
                 </span>
 
                 <button
-                  onClick={() => handleEngineChange('HYBRID')}
+                  onClick={() => handleEngineChange('PHYSICAL_MODELING')}
                   className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
-                    currentEngine === 'HYBRID'
+                    currentEngine === 'PHYSICAL_MODELING' || currentEngine === 'HYBRID'
                       ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
                   }`}
-                  title="Karplus-Strong physical string + Non-linear curved bridge clipping"
+                  title="Digital Waveguide + Non-linear Curved Bridge (Karplus-Strong physical modeling)"
                 >
-                  HYBRID PHYSICAL
+                  WAVEGUIDE PHYSICAL
+                </button>
+
+                <button
+                  onClick={() => handleEngineChange('FM_SYNTHESIS')}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold transition-all cursor-pointer ${
+                    currentEngine === 'FM_SYNTHESIS'
+                      ? 'bg-amber-600 text-white shadow-xs'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
+                  }`}
+                  title="FuMi-1 6-Operator FM Shigin Koto (Dexed msfa emulation with snap & ring-time)"
+                >
+                  FUMI-1 FM 6-OP
                 </button>
 
                 <button
@@ -264,9 +276,9 @@ export default function App() {
                       ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
                   }`}
-                  title="Real multi-harmonic acoustic wavetables from real instrument recordings"
+                  title="PureTones 32-harmonic acoustic wavetables from real instrument recordings"
                 >
-                  ACOUSTIC SAMPLES
+                  PURETONES PCM
                 </button>
 
                 <button
@@ -276,9 +288,9 @@ export default function App() {
                       ? 'bg-amber-600 text-white shadow-xs'
                       : 'bg-stone-100 hover:bg-stone-200 text-stone-600'
                   }`}
-                  title="Pure algorithmic Fourier mathematical series (zero memory, ideal for low-flash MCU)"
+                  title="Pure algorithmic Fourier mathematical series (zero memory MCU)"
                 >
-                  PURE MATH DSP
+                  FOURIER MATH
                 </button>
               </div>
 

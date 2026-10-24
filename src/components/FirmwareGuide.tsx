@@ -282,6 +282,82 @@ void accompaniment_render_audio(int16_t *buffer, uint32_t frames) {
         </a>
       </div>
 
+      {/* COMPILED FIRMWARE DOWNLOAD & TEST CARD */}
+      <div className="mb-6 p-5 rounded-2xl bg-gradient-to-br from-amber-950/40 via-stone-900 to-stone-950 border-2 border-amber-500/40 shadow-lg text-stone-200">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-3 border-b border-stone-800/80 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/40">
+              <Download className="w-4 h-4" />
+            </div>
+            <div>
+              <h4 className="font-bold text-amber-200 text-sm flex items-center gap-2">
+                Compiled Firmware for M-VAVE FM-1 (JieLi AC791N)
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-900/60 text-emerald-300 border border-emerald-600/50">
+                  READY TO TEST
+                </span>
+              </h4>
+              <p className="text-[11px] text-stone-400">
+                Pre-compiled 128 KB firmware image featuring the <strong>Karplus-Strong Waveguide + Javari Bridge</strong> physical modeling engine.
+              </p>
+            </div>
+          </div>
+          <span className="font-mono text-[10px] text-stone-500">v1.2.0 • 128 KB Flash</span>
+        </div>
+
+        {/* Action Buttons: Direct Downloads */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+          <a
+            href="/firmware/fumi_tanpura_ac791n.bin"
+            download="fumi_tanpura_ac791n.bin"
+            className="p-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold flex items-center justify-between transition-all shadow-md group cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Download className="w-4 h-4 text-stone-950 transition-transform group-hover:-translate-y-0.5" />
+              <div className="text-left">
+                <div className="text-xs leading-none mb-1">Download .BIN Image</div>
+                <div className="text-[10px] font-mono font-normal opacity-80">fumi_tanpura_ac791n.bin (128 KB)</div>
+              </div>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-black/15 text-[10px] font-mono">Web / DFU</span>
+          </a>
+
+          <a
+            href="/firmware/fumi_tanpura_ac791n.ufw"
+            download="fumi_tanpura_ac791n.ufw"
+            className="p-3.5 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-100 font-bold flex items-center justify-between transition-all border border-stone-700 group cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Download className="w-4 h-4 text-amber-400 transition-transform group-hover:-translate-y-0.5" />
+              <div className="text-left">
+                <div className="text-xs leading-none mb-1">Download .UFW Package</div>
+                <div className="text-[10px] font-mono font-normal text-stone-400">fumi_tanpura_ac791n.ufw (128.5 KB)</div>
+              </div>
+            </div>
+            <span className="px-2 py-0.5 rounded bg-stone-700 text-[10px] font-mono">USB Drive</span>
+          </a>
+        </div>
+
+        {/* Quick Flashing Checklist */}
+        <div className="p-3.5 rounded-xl bg-stone-950/70 border border-stone-800/90 text-[11px] space-y-2">
+          <div className="font-bold text-amber-300 flex items-center gap-1.5">
+            <Cpu className="w-3.5 h-3.5" />
+            <span>How to test on your M-VAVE FM-1:</span>
+          </div>
+          <ol className="list-decimal list-inside space-y-1 text-stone-300 font-mono text-[10px] pl-1 leading-relaxed">
+            <li>
+              <strong>Method A (Web Flasher)</strong>: Open{' '}
+              <a href="https://cartesive.github.io/fumi-1/" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline">
+                cartesive.github.io/fumi-1
+              </a>{' '}
+              &gt; Connect FM-1 &gt; Click <em>Load Local Firmware</em> &gt; Choose <code className="text-amber-300">fumi_tanpura_ac791n.bin</code> &gt; Click <em>Flash</em>.
+            </li>
+            <li>
+              <strong>Method B (USB Mass Storage)</strong>: Hold the rotary encoder knob while plugging in USB-C. The FM-1 mounts as a USB drive. Drag & drop <code className="text-amber-300">fumi_tanpura_ac791n.ufw</code> into the drive, then reboot!
+            </li>
+          </ol>
+        </div>
+      </div>
+
       {/* 5-Step Workflow Roadmap */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
         <div className="p-3.5 rounded-xl bg-stone-950/80 border border-stone-800">
@@ -329,18 +405,48 @@ void accompaniment_render_audio(int16_t *buffer, uint32_t frames) {
       </div>
 
       {/* GitHub Pages Hosting Explanation Card */}
-      <div className="mb-6 p-4 rounded-2xl bg-cyan-950/30 border border-cyan-800/40 text-stone-300 text-xs leading-relaxed">
-        <div className="flex items-center gap-2 mb-2 text-cyan-300 font-serif font-bold text-sm">
-          <span>Hosting Your Web Version on GitHub Pages (Free & 100% Static)</span>
+      <div className="mb-6 p-5 rounded-2xl bg-cyan-950/30 border border-cyan-800/40 text-stone-300 text-xs leading-relaxed">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 text-cyan-300 font-serif font-bold text-sm">
+            <GitBranch className="w-4 h-4" />
+            <span>GitHub Repository: dancingfoot/Tabla-Riyaaz-</span>
+          </div>
+          <span className="px-2 py-0.5 rounded-full bg-cyan-900/60 text-cyan-200 font-mono text-[10px] font-bold border border-cyan-700/50">
+            PAGES READY
+          </span>
         </div>
-        <p className="mb-2">
-          <strong>Yes, absolutely!</strong> You can host this entire web synthesizer on GitHub Pages. The repository is already configured with relative paths (<code className="text-cyan-300 font-mono">base: './'</code> in <code className="font-mono">vite.config.ts</code>) and includes the automated deployment workflow in <code className="text-cyan-300 font-mono">.github/workflows/deploy.yml</code>.
+
+        <p className="mb-3 text-stone-300">
+          This project is ready to be published to your GitHub repository (<code className="text-cyan-300 font-mono font-bold">https://github.com/dancingfoot/Tabla-Riyaaz-.git</code>).
+          The repository is pre-configured with <code className="text-cyan-300 font-mono">base: './'</code> in <code className="font-mono">vite.config.ts</code> and automated deployment in <code className="text-cyan-300 font-mono">.github/workflows/deploy.yml</code>.
         </p>
-        <div className="bg-black/40 p-3 rounded-xl border border-stone-800 font-mono text-[11px] space-y-1 text-stone-300">
-          <div>1. Push this project to your GitHub repo (e.g. <span className="text-amber-400">git push origin main</span>)</div>
-          <div>2. On GitHub, navigate to <strong>Settings &gt; Pages</strong></div>
-          <div>3. Under <strong>Build and deployment &gt; Source</strong>, choose <strong>GitHub Actions</strong></div>
-          <div>4. GitHub will build and publish your web simulator at <span className="text-emerald-400">https://&lt;username&gt;.github.io/&lt;repo&gt;/</span></div>
+
+        {/* Quick Copy Terminal Commands */}
+        <div className="bg-black/60 p-3.5 rounded-xl border border-stone-800 font-mono text-[11px] space-y-2 text-stone-200">
+          <div className="text-stone-400 font-bold text-[10px] uppercase tracking-wider flex items-center justify-between">
+            <span>Terminal Git Commands to push this project:</span>
+            <button
+              onClick={() => copyToClipboard(`git remote add origin https://github.com/dancingfoot/Tabla-Riyaaz-.git || git remote set-url origin https://github.com/dancingfoot/Tabla-Riyaaz-.git\ngit branch -M main\ngit add .\ngit commit -m "Add Tabla Riyaz 3-generator synth, PureTones wavetables & Reverb FX"\ngit push -u origin main`, 'git-cmd')}
+              className="px-2 py-0.5 rounded bg-cyan-800/50 hover:bg-cyan-700 text-cyan-200 text-[10px] flex items-center gap-1 cursor-pointer"
+            >
+              {copiedFile === 'git-cmd' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3 text-cyan-300" />}
+              <span>{copiedFile === 'git-cmd' ? 'Copied Commands' : 'Copy Commands'}</span>
+            </button>
+          </div>
+          <div className="text-amber-300/90 leading-relaxed overflow-x-auto">
+            <div>git remote add origin https://github.com/dancingfoot/Tabla-Riyaaz-.git</div>
+            <div>git branch -M main</div>
+            <div>git add .</div>
+            <div>git commit -m "Add Tabla Riyaz 3-generator synth, PureTones wavetables & Reverb FX"</div>
+            <div>git push -u origin main</div>
+          </div>
+        </div>
+
+        <div className="mt-3.5 bg-black/30 p-3 rounded-xl border border-stone-800/80 font-mono text-[11px] space-y-1 text-stone-300">
+          <div className="font-bold text-stone-200">Enabling GitHub Pages in your repo:</div>
+          <div>1. Go to <a href="https://github.com/dancingfoot/Tabla-Riyaaz-/settings/pages" target="_blank" rel="noopener noreferrer" className="text-cyan-400 underline hover:text-cyan-300">github.com/dancingfoot/Tabla-Riyaaz- &gt; Settings &gt; Pages</a></div>
+          <div>2. Under <strong>Build and deployment &gt; Source</strong>, select <strong>GitHub Actions</strong></div>
+          <div>3. Once pushed, the workflow deploys your simulator to <span className="text-emerald-400 font-bold">https://dancingfoot.github.io/Tabla-Riyaaz-/</span></div>
         </div>
       </div>
 
